@@ -59,7 +59,8 @@ def rel(a, b):
 
 def methods():
     return {'bdr': BDR(), 'lrb_bdr': sq.lrb_bdr(), 'leapquant8': sq.leapquant(8), 'gramian4': sq.gramian(4, 1),
-            'gramian4_c64': sq.gramian(4, 64)}
+            'gramian4_c64': sq.gramian(4, 64), 'replay_tp4_hi16_sr': sq.replayssm('tp4_hi16_sr', L=4),
+            'replay_f4_sr_rs': sq.replayssm('f4_sr_rs', L=4)}
 
 
 @pytest.mark.parametrize('meth', list(methods()))
@@ -73,7 +74,8 @@ def test_runs(model, meth):
     with sq.apply(m, q):
         out = run(m, x, 12)
     assert torch.isfinite(out).all() and not torch.equal(out, ref)
-    if meth == 'leapquant8':                         # the prompt runs in full precision, rounded at its end
+    if meth == 'leapquant8' or meth.startswith('replay'):   # the prompt runs in full precision (LeapQuant: rounded
+                                                                # at its end)
         assert torch.equal(out[:, :40], ref[:, :40])
     r = sq.report(m, q)
     assert r['payload_bits_per_value'] > 0
@@ -232,3 +234,18 @@ def test_rwkv7_refuses(meth):
             run(m, ids(8), 1)
     with pytest.raises(NotImplementedError, match='rwkv7'):
         sq.calibrate(m, DampPaper(8, k_hi=4, horizon=32, anchors=(32,)), ids(64))
+
+
+def test_replay_fp32_reproduces(model):
+    """ReplaySSM with an FP32 checkpoint and no read copy is full precision up to the ring's FP16 u and the BF16 read
+    of the checkpoint (delta rule); flushes (L = 4) re-solve the window from the checkpoint. A narrower read copy and
+    flush period 1 (the checkpoint read every token) differ from it."""
+    name, m = model
+    x, f = ids(40), ids(20, seed=2)
+    ref = run(m, x, 20, forced=f)
+    with sq.apply(m, sq.replayssm('s32_rs', L=4)):
+        out = run(m, x, 20, forced=f)
+    assert torch.equal(out[:, :40], ref[:, :40]) and rel(out, ref) < 1e-2
+    with sq.apply(m, sq.replayssm('tp4_hi32', L=4)):
+        q = run(m, x, 20, forced=f)
+    assert rel(q, ref) > rel(out, ref)

@@ -59,12 +59,15 @@ def _round_activation(x, bits):
 class _Carry:
     """The wrapper around one op. ``boundary(S, layer, piece)`` returns the state to carry on (canonical layout).
     With ``stateful`` (a method's ``piece(S, layer, piece)``, ``statequant.methods_ext``) EVERY piece is handed over,
-    with ``piece.hit`` / ``.start`` / ``.prompt_end`` set, and its return value is carried."""
+    with ``piece.hit`` / ``.start`` / ``.prompt_end`` set, and its return value is carried. ``prepare(S, layer, piece)``
+    (a stateful method's optional ``prepare``) runs before every piece that continues a state and returns the state
+    the op starts from."""
 
-    def __init__(self, orig, schedule: Schedule, boundary, positions: dict, family=_GDN, op=None, stateful=None):
+    def __init__(self, orig, schedule: Schedule, boundary, positions: dict, family=_GDN, op=None, stateful=None,
+                 prepare=None):
         self.orig, self.sch, self.boundary, self.pos = orig, schedule, boundary, positions
         self.fam, self.op = family, op or family.ops[0]
-        self.stateful = stateful
+        self.stateful, self.prepare = stateful, prepare
 
     def _kwargs(self, args, kw):
         if args:
@@ -108,6 +111,10 @@ class _Carry:
             if bb:
                 raw = dict(piece)
                 self._round_buffer(piece, bb)
+            if self.prepare is not None and S is not None:
+                full = {**keep, **piece}
+                S = fam.state_out(self.prepare(fam.state_in(S, full), layer, Piece(full, fam, layer, None, pos + step)),
+                                  S, full)
             S0 = S
             o, S = fam.call(op, self.orig, piece, keep, S, npos, raw)
             outs.append(o)
@@ -148,6 +155,10 @@ class _Carry:
             self._round_buffer(kw, bb)
         pos = pos + 1
         hit = (pos % period == 0) & (pos > 0)
+        if self.prepare is not None:
+            full = {**kw, op.state_arg: S}
+            S.copy_(fam.state_out(self.prepare(fam.state_in(S, full), layer, Piece(full, fam, layer, None, pos)), S,
+                                  full))
         S0 = S.clone() if (bool(hit.any()) or self.stateful is not None) else None
         o, S = fam.call(op, self.orig, kw, {}, S, npos, raw)
         if self.stateful is not None:                    # statequant.methods_ext: the method sees every step
@@ -285,7 +296,8 @@ def apply(model, method, schedule: Schedule | None = None, backend: str = 'refer
             method.reset()
 
         def carry(orig, sch, bnd, pos, fam, op):
-            return _Carry(orig, sch, bnd, pos, fam, op, stateful=method.piece)
+            return _Carry(orig, sch, bnd, pos, fam, op, stateful=method.piece,
+                          prepare=getattr(method, 'prepare', None))
     elif backend == 'packed':
         from .methods import Uniform
         assert isinstance(method, Uniform), 'the packed backend supports Uniform formats only'

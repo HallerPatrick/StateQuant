@@ -58,17 +58,45 @@ def test_quantized_differs_and_restores(model):
     assert torch.equal(greedy(model, x, 12), ref)                                 # patch removed on exit
 
 
+class _Recorder(sq.StateQuantizer):
+    """Keeps the state at every rounding boundary and returns it unchanged (no rounding flips to amplify kernel noise)."""
+
+    def __init__(self):
+        self.seen = []
+
+    def quantize(self, S, layer):
+        self.seen.append((layer, S.clone()))
+        return S
+
+    def bits_per_value(self, d_k, d_v):
+        return 32.
+
+
 def test_rounds_at_sequence_positions(model):
-    """A prompt split into two calls rounds at the same places as one call."""
+    """A prompt split into two calls rounds at the same places as one call: the same boundaries see the same states,
+    and a quantized run gives the same logits up to kernel rounding."""
     x = ids(T=512, B=1)
-    m = sq.Uniform(sq.Quantizer(3, 'k', 32))
     sch = sq.Schedule(prefill=128, decode=128, buffer_bits=0)
-    with sq.apply(model, m, sch), torch.no_grad():
-        one = model(input_ids=x, use_cache=True).logits
+    one, two = _Recorder(), _Recorder()
+    with sq.apply(model, one, sch), torch.no_grad():
+        model(input_ids=x, use_cache=True)
+    with sq.apply(model, two, sch), torch.no_grad():
         out = model(input_ids=x[:, :200], use_cache=True)
-        two = torch.cat([out.logits, model(input_ids=x[:, 200:], past_key_values=out.past_key_values,
-                                           use_cache=True).logits], 1)
-    assert (one - two).abs().max().item() < 2e-2 * one.abs().max().item()
+        model(input_ids=x[:, 200:], past_key_values=out.past_key_values, use_cache=True)
+    for layer in (0, 1):                                   # per layer: boundaries 128, 256, 384, 512 in order
+        a_s = [S for l, S in one.seen if l == layer]
+        b_s = [S for l, S in two.seen if l == layer]
+        assert len(a_s) == len(b_s) == 4
+        for a, b in zip(a_s, b_s):
+            assert (a - b).norm() < 1e-2 * a.norm()
+    # int8: rounding flips from chunk-boundary kernel noise stay small (int3 flips exceeded 2e-2 on H100 / fla 0.5)
+    m = sq.Uniform(sq.Quantizer(8, 'k', 32))
+    with sq.apply(model, m, sch), torch.no_grad():
+        lo = model(input_ids=x, use_cache=True).logits
+        out = model(input_ids=x[:, :200], use_cache=True)
+        lt = torch.cat([out.logits, model(input_ids=x[:, 200:], past_key_values=out.past_key_values,
+                                          use_cache=True).logits], 1)
+    assert (lo - lt).abs().max().item() < 2e-2 * lo.abs().max().item()
 
 
 def test_calibrate_headmix(model):

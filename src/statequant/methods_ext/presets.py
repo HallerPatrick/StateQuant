@@ -7,6 +7,7 @@ from .bdr_lrb import BDR, LRB, AffineGrid
 from .damp_paper import DampPaper
 from .gramian import GramianAlloc
 from .leapquant import LeapQuant
+from .replay import ReplaySSM
 
 
 def _with(method, schedule):
@@ -68,6 +69,13 @@ def int8k():
     return rtn(8, 'k', 32, prefill=256, decode=8, buffer_bits=8)
 
 
+def replayssm(mode: str = 'tp4_hi16_sr', L: int = 16):
+    """ReplaySSM (arXiv 2610.13778): recurrence checkpoint + read copy cast at every flush, L-token replay ring,
+    full-precision prefill. Modes as the paper's emulation (``replay.MODES``): 'tp4_hi16_sr' (NVFP4 read, FP16 + SR
+    checkpoint), 'f4_sr_rs' (one shared NVFP4 + SR copy), ..."""
+    return ReplaySSM(mode, L)
+
+
 EXT_PRESETS = {'int8k': int8k,
     'int4_g128': int4_g128, 'bdr_int4': bdr_int4,
     'lrb_bdr': lrb_bdr, 'lrb': lambda: lrb_bdr(bdr=False), 'lrb_bdr_fp32': lambda: lrb_bdr('gdn', records='fp32'),
@@ -76,7 +84,9 @@ EXT_PRESETS = {'int8k': int8k,
     'gramian4': lambda: gramian(4, 1), 'gramian4_c64': lambda: gramian(4, 64), 'gramian6': lambda: gramian(6, 1),
     'uniform4_blk32': lambda: gramian(4, 1, 'uniform'), 'uniform4_blk32_c64': lambda: gramian(4, 64, 'uniform'),
     'damp_paper_int8': damp_paper_int8, 'damp_paper_int4': damp_paper_int4,
+    **{f'replay_{m}': (lambda m=m: replayssm(m)) for m in ('s32_rs', 'f16_sr_rs', 'f8_sr_rs', 'f4_sr_rs', 'tp8_hi32',
+                                                          'tp8_hi16_sr', 'tp4_hi32', 'tp4_hi16_sr', 'tp4_hi8_sr')},
 }
 
 __all__ = ['int4_g128', 'bdr_int4', 'lrb_bdr', 'leapquant', 'gramian', 'damp_paper_int8', 'damp_paper_int4',
-           'EXT_PRESETS', 'Schedule']
+           'replayssm', 'EXT_PRESETS', 'Schedule']
