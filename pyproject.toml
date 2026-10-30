@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "statequant"
+dynamic = ["version"]
+description = "Recurrent-state quantization for linear-attention and SSM hybrid language models (PACE, DAMP, STEPQuant, LRB+BDR, LeapQuant, ...) with packed Triton kernels and a vLLM plugin"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Patrick Haller" }]
+requires-python = ">=3.10"
+dependencies = ["torch>=2.6", "numpy"]
+keywords = ["quantization", "linear attention", "state space models", "gated deltanet", "mamba", "kda", "vllm", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+hf = ["transformers>=5.0"]
+fla = ["flash-linear-attention>=0.5"]
+vllm = ["vllm>=0.32"]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/HallerPatrick/StateQuant"
+Documentation = "https://github.com/HallerPatrick/StateQuant/tree/main/docs"
+Repository = "https://github.com/HallerPatrick/StateQuant"
+Issues = "https://github.com/HallerPatrick/StateQuant/issues"
+Paper = "https://arxiv.org/abs/2610.29545"
+
+[project.entry-points."vllm.general_plugins"]
+statequant = "statequant.integrations.vllm_plugin:register"
+statequant_extras = "statequant.integrations.vllm_extras:register"
+
+[tool.hatch.version]
+path = "src/statequant/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/statequant"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/statequant", "tests", "examples", "benchmarks", "README.md", "LICENSE", "CITATION.cff"]

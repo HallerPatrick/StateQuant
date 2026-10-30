@@ -1,0 +1,24 @@
+model,engine,state_bytes_per_slot_layer,prefill_loss,decode_loss,greedy_agreement,max_concurrency_4232,kv_budget_gib
+Qwen3.5-4B,stock fp32,,2.3554,2.1155,,82.67,16
+Qwen3.5-4B,stock bf16,,2.3554,2.1154,,101.42,16
+Qwen3.5-4B,plugin bf16,,2.3554,2.1102,,101.11,16
+Qwen3.5-4B,int8k,,2.3554,2.1102,,106.36,16
+Qwen3.5-4B,pace4,,2.3554,2.1199,,113.77,16
+Qwen3.5-4B,int4v,,2.3549,2.1090,,114.17,16
+Nemotron-3-Nano-4B,stock fp32,3932160,2.6175,2.5245,0.820,36.6,6
+Nemotron-3-Nano-4B,stock bf16,1966080,2.6177,2.5256,,52.8,6
+Nemotron-3-Nano-4B,plugin bf16,2041216,2.6180,2.5256,0.615,49.6,6
+Nemotron-3-Nano-4B,int8k,1119616,2.6181,2.5248,0.701,65.0,6
+Nemotron-3-Nano-4B,pace4,597376,2.6179,2.5366,0.455,72.1,6
+Nemotron-3-Nano-4B,int4v,689536,2.6183,2.5512,0.363,70.6,6
+Olmo-Hybrid-7B,stock fp32,2211840,2.0664,1.8003,0.762,10.90,6
+Olmo-Hybrid-7B,stock bf16,1105920,2.0664,1.8002,,11.70,6
+Olmo-Hybrid-7B,plugin bf16,1177216,2.0664,1.8004,0.877,11.38,6
+Olmo-Hybrid-7B,int8k,658816,2.0662,1.8003,0.877,11.87,6
+Olmo-Hybrid-7B,pace4,370816,2.0666,1.8049,0.852,12.04,6
+Olmo-Hybrid-7B,int4v,382336,2.0665,1.7999,0.711,12.04,6
+Ling-3.0-tiny,stock fp32,1048576,2.3916,2.1357,,113.75,6
+Ling-3.0-tiny,plugin bf16,631360,2.3921,2.1305,0.828,145.60,6
+Ling-3.0-tiny,int8k,385600,2.3922,2.1327,0.775,161.80,6
+Ling-3.0-tiny,pace4,246336,2.3931,2.1620,0.451,182.00,6
+Ling-3.0-tiny,int4v,254528,2.3911,2.1415,0.602,182.00,6
