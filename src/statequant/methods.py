@@ -5,7 +5,8 @@ Every method implements
                                 dequantized state of the same shape
     bits_per_value(d_k, d_v)    resident payload incl. scales / zero points / protected tiers
     needs_calibration           True if ``statequant.calibrate`` must run first; then ``observe(layer, S, log_decay)``
-                                is called at every calibration boundary and ``finalize()`` once at the end;
+                                is called at every calibration boundary and ``finalize()`` once at the end, after
+                                which ``calibrated`` is True;
                                 log_decay is [B, T, H] (scalar per head) or [B, T, H, d_k] (per key channel: KDA,
                                 RWKV); HeadMix's 'retained' / 'slow' scores use the head's mean decay over channels
 
@@ -38,6 +39,12 @@ class StateQuantizer:
 
     def finalize(self):
         pass
+
+    @property
+    def calibrated(self) -> bool:
+        """True once ``finalize`` has fitted the method (checked by ``statequant.apply`` when needs_calibration).
+        Default: a non-empty ``masks``; a method whose fit is not a mask overrides this."""
+        return bool(getattr(self, 'masks', None))
 
     def __repr__(self):
         return f'{type(self).__name__}({self.name})'

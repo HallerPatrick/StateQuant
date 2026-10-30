@@ -286,7 +286,7 @@ def apply(model, method, schedule: Schedule | None = None, backend: str = 'refer
     """
     method = as_method(method)
     if method.needs_calibration:
-        assert getattr(method, 'masks', None), f'{method!r} needs statequant.calibrate(model, method, data) first'
+        assert method.calibrated, f'{method!r} needs statequant.calibrate(model, method, data) first'
     schedule = schedule or getattr(method, 'schedule', None) or Schedule()
     boundary = lambda S, layer, kw: method.quantize(S, layer)  # noqa: E731
     carry = None
