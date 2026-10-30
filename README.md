@@ -1,7 +1,7 @@
 # statequant
 
 [![PyPI](https://img.shields.io/pypi/v/statequant)](https://pypi.org/project/statequant/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/HallerPatrick/StateQuant/blob/main/LICENSE)
 
 Recurrent-state quantization for linear-attention and SSM hybrid language models. statequant implements published
 state-quantization methods (PACE, DAMP, STEPQuant, Q-Mamba DSQ, LRB + BDR, LeapQuant, decay-weighted allocation, ...)
@@ -55,8 +55,8 @@ STATEQUANT_VLLM=pace4 vllm serve Qwen/Qwen3.5-4B --no-enable-prefix-caching
 | fp16 + stochastic rounding (Nemotron 3) | `nemotron()` | NVIDIA, [arXiv 2604.12374](https://arxiv.org/abs/2604.12374) |
 | Round to nearest (baseline) | `rtn(bits, axis, group)`, `int4_g128()` | |
 
-Formats, schedules and how to compose your own: [docs/methods.md](docs/methods.md). Per-model quality of every
-method: [docs/results.md](docs/results.md).
+Formats, schedules and how to compose your own: [docs/methods.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/methods.md). Per-model quality of every
+method: [docs/results.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/results.md).
 
 ## Supported models
 
@@ -69,31 +69,31 @@ method: [docs/results.md](docs/results.md).
 | RWKV-7 / RWKV-6 | fla models | ✓ | | |
 
 Details per family, method coverage and model-specific notes:
-[docs/models.md](docs/models.md).
+[docs/models.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/models.md).
 
 ## Results
 
 vLLM 0.32 end to end, packed state vs stock:
 
-![vLLM concurrency and decode loss](docs/figures/vllm_e2e.png)
+![vLLM concurrency and decode loss](https://raw.githubusercontent.com/HallerPatrick/StateQuant/main/docs/figures/vllm_e2e.png)
 
 Decode-step latency of the packed kernels:
 
-![decode step latency](docs/figures/decode_latency.png)
+![decode step latency](https://raw.githubusercontent.com/HallerPatrick/StateQuant/main/docs/figures/decode_latency.png)
 
-Full tables and setups: [docs/results.md](docs/results.md).
+Full tables and setups: [docs/results.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/results.md).
 
 ## Documentation
 
-- [Methods](docs/methods.md): presets, formats, schedules,
+- [Methods](https://github.com/HallerPatrick/StateQuant/blob/main/docs/methods.md): presets, formats, schedules,
   stateful methods
-- [Supported models](docs/models.md): support matrix,
+- [Supported models](https://github.com/HallerPatrick/StateQuant/blob/main/docs/models.md): support matrix,
   per-family notes
-- [Packed kernels](docs/kernels.md): storage layout, fused decode
+- [Packed kernels](https://github.com/HallerPatrick/StateQuant/blob/main/docs/kernels.md): storage layout, fused decode
   step, tests, latency
-- [vLLM plugin](docs/vllm.md): configuration, restrictions,
+- [vLLM plugin](https://github.com/HallerPatrick/StateQuant/blob/main/docs/vllm.md): configuration, restrictions,
   end-to-end checks
-- [Results](docs/results.md): every preset per model
+- [Results](https://github.com/HallerPatrick/StateQuant/blob/main/docs/results.md): every preset per model
 
 ## Citation
 
@@ -111,14 +111,14 @@ If you use statequant, please cite:
   title   = {statequant: Recurrent-State Quantization for Hybrid Language Models},
   author  = {Haller, Patrick},
   url     = {https://github.com/HallerPatrick/StateQuant},
-  version = {0.1.0},
+  version = {0.1.1},
   year    = {2026}
 }
 ```
 
 Please also cite the papers of the methods you use (listed in
-[docs/methods.md](docs/methods.md)).
+[docs/methods.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/methods.md)).
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](https://github.com/HallerPatrick/StateQuant/blob/main/LICENSE).

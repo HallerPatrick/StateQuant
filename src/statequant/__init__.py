@@ -23,4 +23,4 @@ from .quantizer import FloatCast, Format, Identity, Quantizer, hadamard
 from .report import report
 from .schedule import Schedule, per_token, periodic
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
