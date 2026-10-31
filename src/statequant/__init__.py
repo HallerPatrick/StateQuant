@@ -12,7 +12,7 @@ Building blocks: formats (Quantizer, FloatCast, Identity), methods (Uniform, Hea
 schedules (Schedule, per_token, periodic).
 """
 from .methods import DSQ, ChannelProtect, HeadMix, StateQuantizer, Uniform, as_method
-from .patch import apply, calibrate, find_layers, layer_families
+from .patch import apply, calibrate, find_layers, layer_families, set_positions
 from .presets import (PRESETS, damp_int4, damp_int8, full_precision, nemotron, pace4, pace48, qmamba_dsq, rtn,
                       stepquant)
 from .step_quant import StepQuant

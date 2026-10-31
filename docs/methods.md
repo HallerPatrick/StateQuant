@@ -37,6 +37,11 @@ with sq.apply(model, q):                 # the method's published schedule, or s
 sq.report(model, q)                      # bits/value (payload + decode buffer), MiB per sequence
 ```
 
+Positions count along each sequence across calls. If you assemble a batch cache outside the model (rows prefilled
+in separate calls, then merged), call `sq.set_positions(model, lengths)` inside `apply` before the first batched call,
+so that row b continues at position `lengths[b]` (schedule-driven methods on the reference backend; stateful methods
+raise).
+
 Compose your own:
 
 ```python

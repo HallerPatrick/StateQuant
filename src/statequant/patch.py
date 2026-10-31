@@ -260,14 +260,36 @@ def _patched(model, schedule: Schedule, boundary, carry=None):
         for i, m in enumerate(layers):
             handles.append(m.register_forward_pre_hook(enter(i)))
             handles.append(m.register_forward_hook(leave))
+        model._statequant_positions = (positions, len(layers))
         yield layers
     finally:
+        model.__dict__.pop('_statequant_positions', None)
         for mod, n, orig in reversed(saved):
             setattr(mod, n, orig)
         for h in handles:
             h.remove()
         for u in undo:
             u()
+
+
+def set_positions(model, lengths):
+    """Inside ``statequant.apply``: declare that batch row b of the next call continues a sequence of ``lengths[b]``
+    tokens, for a cache that was assembled outside the model (e.g. rows prefilled in separate calls and merged into
+    one batch). Every layer's position counter is set, so the schedule rounds at the same sequence positions as an
+    unsplit run; the merged cache must already hold each row's state as its own prefill left it.
+
+    Reference backend, schedule-driven methods only: stateful methods (``statequant.methods_ext``: LRB, LeapQuant,
+    Gramian, ReplaySSM, ...) keep per-batch state of their own and the packed backend keeps per-batch packed states,
+    which a merge outside the model cannot update."""
+    reg = getattr(model, '_statequant_positions', None)
+    assert reg is not None, 'set_positions must be called inside statequant.apply(model, ...)'
+    if model.__dict__.get('_statequant_stateful'):
+        raise NotImplementedError('set_positions: stateful methods and the packed backend keep per-batch state '
+                                  'that an externally merged cache does not carry')
+    positions, n = reg
+    lengths = torch.as_tensor(lengths, dtype=torch.long).flatten().cpu()
+    for i in range(n):
+        positions[i] = lengths.clone()
 
 
 @contextlib.contextmanager
@@ -312,8 +334,13 @@ def apply(model, method, schedule: Schedule | None = None, backend: str = 'refer
             return _PackedCarry(orig, sch, bnd, pos, method.fmt, states, fam, op)
     else:
         assert backend == 'reference', backend
-    with _patched(model, schedule, boundary, carry) as layers:
-        yield layers
+    if carry is not None:
+        model._statequant_stateful = True
+    try:
+        with _patched(model, schedule, boundary, carry) as layers:
+            yield layers
+    finally:
+        model.__dict__.pop('_statequant_stateful', None)
 
 
 @torch.no_grad()

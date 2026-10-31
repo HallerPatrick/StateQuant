@@ -106,3 +106,43 @@ def test_calibrate_headmix(model):
         greedy(model, ids(), 4)
     r = sq.report(model, q)
     assert r['layers'] == 2 and r['d_k'] == 128 and r['payload_bits_per_value'] == q.bits_per_value(128, 128)
+
+
+def _merge(caches):
+    """Stack per-row fla caches (pure recurrent model: no padding needed) into one batch cache."""
+    base = caches[0]
+    for i in range(len(base)):
+        st = base[i]
+        st['recurrent_state'] = torch.cat([c[i]['recurrent_state'] for c in caches])
+        st['conv_state'] = tuple(torch.cat(xs) for xs in zip(*[c[i]['conv_state'] for c in caches]))
+    return base
+
+
+def test_set_positions_after_merged_prefill(model):
+    """Rows prefilled in separate calls and merged into one batch cache: with set_positions the batch decodes as each
+    row alone does (rounding every 8 tokens at each row's own positions, int8 buffer); without, it does not."""
+    lens, n = (300, 203), 20
+    rows = [ids(T=t, B=1, seed=s) for t, s in zip(lens, (3, 4))]
+    forced = ids(T=n, B=2, seed=5)
+    sch = sq.Schedule(prefill=256, decode=8, buffer_bits=8)
+    m = sq.Uniform(sq.Quantizer(4, 'k', 64))
+
+    def decode(pkv, toks, setpos):
+        out = []
+        for t in range(n):
+            if setpos and t == 0:
+                sq.set_positions(model, setpos)
+            o = model(input_ids=toks[:, t:t + 1], past_key_values=pkv, use_cache=True)
+            pkv = o.past_key_values
+            out.append(o.logits)
+        return torch.cat(out, 1)
+    with sq.apply(model, m, sch), torch.no_grad():
+        alone = torch.cat([decode(model(input_ids=r, use_cache=True).past_key_values, forced[b:b + 1], None)
+                           for b, r in enumerate(rows)])
+        merged = {}
+        for setpos in (lens, None):
+            pkv = _merge([model(input_ids=r, use_cache=True).past_key_values for r in rows])
+            merged[setpos is not None] = decode(pkv, forced, setpos)
+    tol = 1e-3 * alone.abs().max().item()
+    assert (merged[True] - alone).abs().max().item() < tol
+    assert (merged[False] - alone).abs().max().item() > tol
