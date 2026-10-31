@@ -97,14 +97,23 @@ def nemotron():
                  Schedule(prefill=1, decode=1, buffer_bits=0))
 
 
-def stepquant(bits: int = 4, pivots: int | None = None):
-    """STEPQuant (arXiv 2609.38169) at a nominal 4 or 6 bits, rounding at every state write as published."""
-    return _with(StepQuant(bits, pivots), per_token())
+def stepquant(bits: int = 4, pivots: int | None = None, prefill: str = 'token', chunk: int = 2048):
+    """STEPQuant (arXiv 2609.38169) at a nominal 4 or 6 bits, rounding after every decoded token.
+
+    prefill  'token': also after every prompt token (every state write);
+             'chunk': as the authors' deployed path: the prompt runs at full precision and the state is stored once
+             per ``chunk`` (2048) prompt tokens and at the end of every prompt call (their SGLang integration encodes
+             after each chunked-prefill extend, chunked_prefill_size 2048; their HF adapter after each forward call)."""
+    assert prefill in ('token', 'chunk')
+    sch = per_token() if prefill == 'token' else Schedule(prefill=chunk, decode=1, buffer_bits=0, prompt_end=True)
+    return _with(StepQuant(bits, pivots), sch)
 
 
 PRESETS = {'fp32': full_precision, 'rtn': rtn, 'pace4': pace4, 'pace48': pace48, 'damp_int8': damp_int8,
            'damp_int4': damp_int4, 'qmamba_dsq': qmamba_dsq, 'nemotron': nemotron,
-           'stepquant4': lambda: stepquant(4), 'stepquant6': lambda: stepquant(6)}
+           'stepquant4': lambda: stepquant(4), 'stepquant6': lambda: stepquant(6),
+           'stepquant4_chunk': lambda: stepquant(4, prefill='chunk'),
+           'stepquant6_chunk': lambda: stepquant(6, prefill='chunk')}
 
 
 # -- methods in statequant.methods_ext (BDR/LRB, LeapQuant, Gramian allocation, DAMP paper recipe) ----------------

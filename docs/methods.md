@@ -14,7 +14,7 @@ per sequence.
 | `damp_paper_int8()`, `damp_paper_int4()` | DAMP's own recipe: fp16 key channels, INT8 sym / INT4 asym g32, calibrated value scaling + reordering, SR | DAMP, [arXiv 2608.27513](https://arxiv.org/abs/2608.27513) v2 |
 | `qmamba_dsq()` | decoupled scale quantization (`DSQ`) | Q-Mamba, [Findings of ACL 2025](https://aclanthology.org/2025.findings-acl.551) |
 | `nemotron()` | fp16 state with stochastic rounding, every token | Nemotron 3 Super, [arXiv 2604.12374](https://arxiv.org/abs/2604.12374) |
-| `stepquant(bits)` | per-head bit allocation from the state's lifetime (`StepQuant`) | STEPQuant, [arXiv 2609.38169](https://arxiv.org/abs/2609.38169), [code](https://github.com/Dreamer-Toby/STEPQuant) |
+| `stepquant(bits, prefill='token'\|'chunk')` | per-head bit allocation from the state's lifetime (`StepQuant`); `'chunk'`: prompt at full precision, stored every 2048 tokens and at its end, as the authors' SGLang / HF code (presets `stepquant4_chunk`, `stepquant6_chunk`); fused Triton fit on CUDA | STEPQuant, [arXiv 2609.38169](https://arxiv.org/abs/2609.38169), [code](https://github.com/Dreamer-Toby/STEPQuant) |
 | `rtn(bits, axis, group)` | round to nearest, every token (baseline) | |
 | `int4_g128()`, `bdr_int4()` | INT4 asym g128, every token; + Bounded Directional Rounding | [arXiv 2610.15709](https://arxiv.org/abs/2610.15709) |
 | `lrb_bdr(...)` | Low-Rank Bypass + BDR | [arXiv 2610.15709](https://arxiv.org/abs/2610.15709) |

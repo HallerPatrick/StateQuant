@@ -13,8 +13,12 @@ of all layers, minimising sum_u L_u d_u(b_u), with lifetime L_u = sum_{j<horizon
 squared error of the dual-axis fit on calibration state snapshots; the riskiest heads (after a first DP) are kept in
 fp16 as pivots, each charged 8 bits against the budget, and the rest re-allocated (App. C.2).
 
-STEPQuant rounds after every state update (``schedule = per_token()``); calibration traces the model token by token at
-full precision and snapshots the state every 8 updates (reservoir of 64 per layer, seed 0).
+STEPQuant rounds after every decoded token. The paper's ``stepquant(bits)`` preset here also rounds after every prompt
+token (``per_token()``); the authors' code runs a prompt at full precision and stores (rounds) the state once per call
+(HF adapter, stepquant/adapters.py: the codec encodes after the layer's forward) or once per SGLang prefill chunk of
+2048 tokens (stepquant/sglang/runtime.py ``kernel_extend``: decode, native chunk kernel, encode; configs/serving
+chunked_prefill_size 2048): ``stepquant(bits, prefill='chunk')``. Calibration traces the model token by token at full
+precision and snapshots the state every 8 updates (reservoir of 64 per layer, seed 0).
 
 Other families (not in the paper): the row impact uses the family's read vector q (Mamba2: C; lightning: q; RWKV-6:
 r) and beta = 0 where there is no delta rule; with a per-key-channel decay (KDA, RWKV-6) the lifetime is per key row,
@@ -172,13 +176,16 @@ class StepQuant(StateQuantizer):
 
     pivots      number of fp16 heads over the whole model; None scales the paper's 32 of 2,304 to this model
     horizon     lifetime horizon in tokens (2,048)
+    backend     'auto': the fused Triton fit (``kernels/_stepquant_triton.py``) for CUDA states when triton is
+                installed, else ``fit``; 'torch': always ``fit`` (bit-identical to the authors' reference); 'triton'
     """
     needs_calibration = True
     calibration_period = 8                       # snapshot every 8 updates (the boundary period of the trace)
 
     def __init__(self, bits: int = 4, pivots: int | None = None, horizon: int = 2048, gamma: float = 0.25,
-                 sample_every: int = 8, max_snapshots: int = 64, group: int = 32):
-        assert bits in (4, 6)
+                 sample_every: int = 8, max_snapshots: int = 64, group: int = 32, backend: str = 'auto'):
+        assert bits in (4, 6) and backend in ('auto', 'torch', 'triton')
+        self.backend, self._dev = backend, {}
         self.bits, self.pivots, self.horizon, self.gamma, self.group = bits, pivots, horizon, gamma, group
         self.candidates = [2, 4, 6, 8] if bits == 4 else [4, 6, 8]
         self.sample_every, self.max_snapshots = sample_every, max_snapshots
@@ -236,11 +243,28 @@ class StepQuant(StateQuantizer):
             self.masks[name] = assign[off:off + h] == 16
             off += h
         self.n_pivots = piv
-        self.traces = {}
+        self.traces, self._dev = {}, {}
+
+    def _use_triton(self, S):
+        if self.backend == 'torch' or not S.is_cuda:
+            assert self.backend != 'triton' or S.is_cuda, 'the triton backend needs CUDA states'
+            return False
+        if self.backend == 'triton':
+            return True
+        import importlib.util
+        return importlib.util.find_spec('triton') is not None
 
     def quantize(self, S, layer):
         bits, w = self.plan[layer]
-        return fit(S, bits, w, self.group).to(S.dtype)
+        if not self._use_triton(S):
+            return fit(S, bits, w, self.group).to(S.dtype)
+        from .kernels._stepquant_triton import fit as fit_triton
+        key = (layer, S.device)
+        if key not in self._dev:                     # the plan on the device, once (no host sync per call)
+            self._dev[key] = (bits.to(S.device, torch.int32), w.to(S.device, torch.float32).contiguous(),
+                              bool((bits == 2).any()))
+        b, wd, two = self._dev[key]
+        return fit_triton(S, b, wd, self.group, two).to(S.dtype)
 
     def bits_per_value(self, d_k, d_v):
         """Stored bits per value: assigned widths (fp16 for pivots) + one fp16 row and column vector per head (+ the
