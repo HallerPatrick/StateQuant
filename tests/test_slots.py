@@ -214,3 +214,38 @@ def test_layout_bytes():
     assert b['KB'] == 16 * 8 * 128 and b['UB'] == 32 * 8 * 128
     assert lay.nbytes == sum(-(-x // 16) * 16 for x in b.values())
     print('\n', lay, b)
+
+
+@pytest.mark.parametrize('fused', [True, False])
+def test_fp32_state(fused):
+    """The unpacked fp32 slot (vLLM plugin's fp32 / external modes): write stores S exactly, the fused and five-kernel
+    steps fold in fp32 (read() predicts the step after a fold), and the folded state is not rounded to bf16."""
+    m = 4
+    lay = SlotLayout('fp32', HV, HK, D, D, m=m, buffer_bits=8, fused=fused)
+    assert lay.fields['S'][1] == torch.float32
+    blob = torch.randint(0, 256, (8, lay.nbytes), device=DEV, dtype=torch.uint8)
+    views = lay.views(blob)
+    slots = [5, 2]
+    idx = torch.tensor(slots, device=DEV, dtype=torch.int32)
+    S = torch.randn(2, HV, D, D, device=DEV) * 0.5
+    lay.write(views, idx, S)
+    assert torch.equal(views['S'][idx.long()], S)
+    gens = [torch.Generator(device=DEV).manual_seed(10 + i) for i in range(2)]
+    for t in range(2 * m + 1):
+        toks = [token(gn) for gn in gens]
+        q, k, v, g, beta = (torch.stack(x) for x in zip(*toks))
+        out = torch.empty(2, HV, D, device=DEV)
+        if t == 2 * m:                                             # right after the second fold
+            St = lay.read(views, idx)
+            qn = q / torch.sqrt((q * q).sum(-1, keepdim=True) + 1e-6) * D ** -0.5
+            kn = k / torch.sqrt((k * k).sum(-1, keepdim=True) + 1e-6)
+            qx, kx = qn.repeat_interleave(HV // HK, 1), kn.repeat_interleave(HV // HK, 1)
+            a = g.exp()[..., None]
+            u = beta[..., None] * (v - a * torch.einsum('phvk,phk->phv', St, kx))
+            o_pred = a * torch.einsum('phvk,phk->phv', St, qx) + (qx * kx).sum(-1, keepdim=True) * u
+        lay.step(views, idx, q, k, v, out, D ** -0.5, g=g, beta=beta)
+        if t == 2 * m - 1:
+            Sf = views['S'][idx.long()]
+            assert int(views['NPTR'][slots[0], 0]) == 0
+            assert not torch.equal(Sf, Sf.bfloat16().float())      # fp32 values, not bf16 ones
+    assert ((out - o_pred).norm() / o_pred.norm()).item() < 1e-5

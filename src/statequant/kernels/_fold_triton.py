@@ -590,8 +590,8 @@ def _fold(S, sS, SC, sSC, UB, sUB, UBS, sUBS, KB, sKB, KBS, sKBS, GB, sGB, GCUR,
 
     if BITS == 16:
         base = Sb + ov[:, None] * DK + 2 * oh[None, :]
-        tl.store(base, acce.to(tl.bfloat16), mask=hm[None, :])
-        tl.store(base + 1, acco.to(tl.bfloat16), mask=hm[None, :])
+        tl.store(base, acce.to(base.dtype.element_ty), mask=hm[None, :])   # bf16 or fp32 state
+        tl.store(base + 1, acco.to(base.dtype.element_ty), mask=hm[None, :])
         return
 
     if AXK:

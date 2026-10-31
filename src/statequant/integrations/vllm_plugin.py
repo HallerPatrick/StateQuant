@@ -7,6 +7,12 @@ Activation (every engine / worker process loads ``vllm.general_plugins``; this o
 
     STATEQUANT_VLLM=pace4|int4v|int8k|bf16   format of the stored state (or int<bits><k|v>g<group>, e.g. int8vg64)
                                              unset / off: stock vLLM, nothing is patched
+    STATEQUANT_VLLM=fp32                     unpacked fp32 state with the same decode buffer (control; Qwen GDN only)
+    STATEQUANT_VLLM=external:<file.py or module>:<function>
+                                             an external state quantizer (Qwen GDN only): the slot holds an unpacked
+                                             float state (STATEQUANT_VLLM_EXTERNAL_DTYPE=fp32 (default) | bf16) and at
+                                             every rounding point it is replaced by fn(S, layer) cast to that dtype;
+                                             see "External quantizer" below
     STATEQUANT_VLLM_M=8                      decode buffer length m (power of two)
     STATEQUANT_VLLM_BUFFER_BITS=8            buffered keys / delta values: 8 (int8 + fp16 scale) or 16 (bf16)
     STATEQUANT_VLLM_LAYERS=gdn,mamba2,kda    layer types to pack (default: all): ``gdn`` = Qwen3.5 / Qwen3-Next GDN
@@ -18,6 +24,17 @@ Activation (every engine / worker process loads ``vllm.general_plugins``; this o
                                              auto (default) = ``kernels.fold.use_fused``: fused, except value-axis
                                              formats above FUSED_MAX_BH_AXIS_V decode rows x value heads (decided
                                              per captured batch size)
+
+External quantizer (``external:``): ``fn(S, layer) -> S_hat`` with S fp32 [B, H, d_k, d_v] (statequant's canonical
+layout; H value heads of this rank) and ``layer`` the 0-based ordinal of the layer among the model's GDN layers in
+model order (the order of ``config.layer_types``' linear-attention entries = ``statequant.find_layers`` /
+``model.modules()`` order on the HF model). The function is imported once per worker. Rounding points are the packed
+modes': the end of every prefill chunk (vLLM runs a prompt chunk through one chunk-kernel call and stores its final
+state; no rounding inside a chunk) and every m-th decoded token (the buffer fold), with the same int8 / bf16 key and
+delta-value buffer. Needs ``enforce_eager=True`` (fn runs on exactly the sequences whose buffer folded, a
+data-dependent batch); with STATEQUANT_VLLM_EXTERNAL_GRAPHS=1 decode steps may be captured instead, and fn is then
+called on every decode row each step (rows that did not fold keep their state), so it must be capture-safe for fixed
+shapes. No tensor parallelism (fn must see whole heads).
 
 What is patched (from here; the installed vLLM files are untouched):
 
@@ -63,13 +80,25 @@ def config():
     if mode in ('', '0', 'off', 'none', 'stock'):
         return None
     from ..quantizer import Quantizer
-    if mode == 'bf16':
+    _STATE.pop('external', None)
+    if mode.startswith('external:'):
+        raw = os.environ[ENV].strip()[len('external:'):]
+        src, _, fn = raw.rpartition(':')
+        assert src and fn, f'{ENV}=external:<file.py or module>:<function>, got {raw!r}'
+        dt = os.environ.get('STATEQUANT_VLLM_EXTERNAL_DTYPE', 'fp32').strip().lower()
+        assert dt in ('fp32', 'bf16'), f'STATEQUANT_VLLM_EXTERNAL_DTYPE={dt!r}: use fp32 or bf16'
+        _STATE['external'] = (src, fn)
+        fmt = dt
+    elif mode == 'bf16':
         fmt = 'bf16'
+    elif mode == 'fp32':
+        fmt = 'fp32'
     elif mode in _PRESETS:
         fmt = Quantizer(*_PRESETS[mode])
     else:
         m_ = re.fullmatch(r'int([48])([kv])g(\d+)', mode)
-        assert m_, f'{ENV}={mode!r}: use pace4, int4v, int8k, int8v, bf16 or int<4|8><k|v>g<group>'
+        assert m_, (f'{ENV}={mode!r}: use pace4, int4v, int8k, int8v, bf16, fp32, external:<src>:<fn> or '
+                    f'int<4|8><k|v>g<group>')
         fmt = Quantizer(int(m_.group(1)), m_.group(2), int(m_.group(3)))
     m = int(os.environ.get('STATEQUANT_VLLM_M', '8'))
     bb = int(os.environ.get('STATEQUANT_VLLM_BUFFER_BITS', '8'))
@@ -95,11 +124,15 @@ def register():
         return
     _STATE['cfg'] = cfg
     kinds = layer_kinds()
+    if cfg[0] == 'fp32':                                    # fp32 / external: Qwen GDN layers only
+        assert kinds == ('gdn',) or kinds == LAYER_KINDS, f'{ENV}={os.environ.get(ENV)!r}: GDN layers only'
+        kinds = ('gdn',)
     if 'gdn' in kinds:
         _patch_calculators()
         _patch_layer()
-        from . import vllm_olmo
-        vllm_olmo.patch(layout)
+        if cfg[0] != 'fp32':
+            from . import vllm_olmo
+            vllm_olmo.patch(layout)
     if 'mamba2' in kinds:
         from . import vllm_mamba2
         vllm_mamba2.patch(cfg)
@@ -131,6 +164,45 @@ PACKED_MODEL_MODULES = ('vllm.model_executor.models.qwen3_next', 'vllm.model_exe
 PACKED_LAYER = ('vllm.model_executor.layers.mamba.gdn.qwen_gdn_linear_attn', 'QwenGatedDeltaNetAttention')
 PACKED_LAYERS = (PACKED_LAYER, ('vllm.model_executor.layers.mamba.gdn.olmo_gdn_linear_attn',
                                 'OlmoHybridGatedDeltaNetAttention'))
+
+
+def external_fn():
+    """The external quantizer of ``STATEQUANT_VLLM=external:<src>:<fn>`` (imported once per process), or None."""
+    spec = _STATE.get('external')
+    if spec is None:
+        return None
+    if 'external_fn' not in _STATE:
+        import importlib
+        import importlib.util
+        src, name = spec
+        if src.endswith('.py') or os.path.sep in src:
+            ms = importlib.util.spec_from_file_location(f'statequant_external_{abs(hash(src))}', src)
+            mod = importlib.util.module_from_spec(ms)
+            ms.loader.exec_module(mod)
+        else:
+            mod = importlib.import_module(src)
+        fn = getattr(mod, name)
+        assert callable(fn), f'{src}:{name} is not callable'
+        _STATE['external_fn'] = fn
+    return _STATE['external_fn']
+
+
+def gdn_ordinal(config, prefix):
+    """0-based ordinal of the layer ``prefix`` ('...layers.<i>.linear_attn') among the GDN layers in model order."""
+    m_ = re.search(r'layers\.(\d+)\.', prefix)
+    assert m_, f'cannot read the layer index from {prefix!r}'
+    i = int(m_.group(1))
+    types = getattr(config, 'layer_types', None)
+    assert types is not None, 'external quantizer: the config has no layer_types'
+    assert types[i] == 'linear_attention', (i, types[i])
+    return sum(t == 'linear_attention' for t in types[:i])
+
+
+def apply_external(S_vk, layer):
+    """fn on value-major states [P, HV, d_v, d_k] -> value-major fp32."""
+    out = external_fn()(S_vk.float().transpose(-1, -2).contiguous(), layer)
+    assert out.shape == S_vk.shape[:2] + S_vk.shape[2:][::-1], (tuple(out.shape), tuple(S_vk.shape))
+    return out.float().transpose(-1, -2)
 
 
 def _caller_supported(frame) -> tuple[bool, str]:
@@ -214,6 +286,15 @@ def _patch_layer():
         self._sq_layout = layout(self.num_v_heads // self.tp_size, self.num_k_heads // self.tp_size,
                                  self.head_k_dim, self.head_v_dim)
         self._sq_views = None
+        self._sq_external = None
+        if _STATE.get('external') is not None:
+            assert self.tp_size == 1, 'statequant external quantizer: no tensor parallelism'
+            graphs = os.environ.get('STATEQUANT_VLLM_EXTERNAL_GRAPHS', '0').strip() == '1'
+            assert graphs or vllm_config.model_config.enforce_eager, \
+                ('statequant external quantizer: run with enforce_eager=True (or STATEQUANT_VLLM_EXTERNAL_GRAPHS=1 '
+                 'for a capture-safe fn)')
+            external_fn()
+            self._sq_external = (gdn_ordinal(config, self.prefix), graphs)
         if not _STATE.get('logged'):
             _STATE['logged'] = True
             lay = self._sq_layout
@@ -289,6 +370,17 @@ def _forward_core(self, mixed_qkv, b, a, core_attn_out):
         v = xd[:, 2 * kd:].unflatten(1, (lay.HV, lay.DV))
         lay.step(views, idx, q, k, v, core_attn_out[:rows], self.head_k_dim ** -0.5,
                  gate=(a[:rows], b[:rows], self.A_log, self.dt_bias))
+        if self._sq_external is not None:                    # rows whose buffer just folded: S <- fn(S)
+            ordinal, graphs = self._sq_external
+            folded = (views['NPTR'][idx.long(), 0] == 0) & (idx > 0)
+            if graphs:                                       # fixed shapes: fn on every row, kept where folded
+                S = views['S'][idx.long()]
+                Sq = apply_external(S, ordinal).to(S.dtype)
+                views['S'][idx.long()] = torch.where(folded[:, None, None, None], Sq, S)
+            else:
+                sel = idx.long()[folded]
+                if sel.numel():
+                    views['S'][sel] = apply_external(views['S'][sel], ordinal).to(views['S'].dtype)
 
     # 2b. prefill rows: initial state from the packed slot (+ pending buffer), vLLM's chunk kernel, store packed
     if npf > 0:
@@ -304,6 +396,8 @@ def _forward_core(self, mixed_qkv, b, a, core_attn_out):
             initial_state=init, output_final_state=True, cu_seqlens=md.prefill_query_start_loc,
             chunk_indices=md.chunk_indices, chunk_offsets=md.chunk_offsets, use_qk_l2norm_in_kernel=False,
             aiter_prefill_metadata=md.aiter_prefill_metadata)
+        if self._sq_external is not None:                    # the stored state after a prefill chunk: fn(S)
+            last = apply_external(last, self._sq_external[0])
         lay.write(views, pidx, last)
         o = o.squeeze(0)
         core_attn_out[nd:nd + o.shape[0]] = o

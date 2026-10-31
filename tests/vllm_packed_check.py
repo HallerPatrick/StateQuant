@@ -4,7 +4,10 @@ registers via the ``vllm.general_plugins`` entry point) and the model in the HF 
 
 One engine configuration per process (the plugin is chosen by STATEQUANT_VLLM before vLLM starts):
 
-    python tests/vllm_packed_check.py run   --engine stock|stockbf16|stockfp32|bf16|pace4|int4v|int8k [--tasks ...]
+    python tests/vllm_packed_check.py run   --engine stock|stockbf16|stockfp32|bf16|fp32|pace4|int4v|int8k|
+                                                     ext_identity|ext_int4k64 [--tasks ...]
+                                            (fp32: the plugin's unpacked fp32 state with the decode buffer;
+                                             ext_*: STATEQUANT_VLLM=external:tests/_external_fns.py:<fn>, eager)
                                             (stock: vLLM as shipped: fp32 GDN state from Qwen3.5's mamba_ssm_dtype,
                                              the model dtype (bf16) for OLMo-Hybrid; stockbf16 / stockfp32: stock
                                              with mamba_ssm_cache_dtype='bfloat16' / 'float32')
@@ -57,9 +60,14 @@ def windows(ids, n, seq):
     return [ids[(8 + i) * seq:(9 + i) * seq] for i in range(n)]
 
 
+EXTERNAL = {'ext_identity': 'identity', 'ext_int4k64': 'int4_k64'}    # STATEQUANT_VLLM=external:_external_fns.py:<fn>
+
+
 def set_engine_env(engine):
     if engine in STOCK:
         os.environ.pop('STATEQUANT_VLLM', None)
+    elif engine in EXTERNAL:
+        os.environ['STATEQUANT_VLLM'] = f'external:{os.path.join(HERE, "_external_fns.py")}:{EXTERNAL[engine]}'
     else:
         os.environ['STATEQUANT_VLLM'] = engine
 
@@ -76,6 +84,9 @@ def make_llm(a, **kw):
         args['mamba_ssm_cache_dtype'] = 'bfloat16'  # for float32, which stock vLLM follows)
     if a.engine == 'stockfp32':                  # ... with an fp32 one (OLMo-Hybrid's default is the model dtype)
         args['mamba_ssm_cache_dtype'] = 'float32'
+    graphs = os.environ.get('STATEQUANT_VLLM_EXTERNAL_GRAPHS', '0') == '1'
+    if (a.engine in EXTERNAL and not graphs) or a.eager:      # the external quantizer runs eagerly (unless graphs)
+        args['enforce_eager'] = True
     args.update(kw)
     return LLM(**args)
 
@@ -294,6 +305,7 @@ def main():
     p.add_argument('--budget', type=int, default=256, help='max_num_batched_tokens of the mixed task')
     p.add_argument('--hf_batch', type=int, default=8)
     p.add_argument('--suffix', default='')
+    p.add_argument('--eager', action='store_true', help='enforce_eager (no CUDA graphs / torch.compile)')
     p.add_argument('--model', default=MODEL, help='HF repo (Qwen/Qwen3.5-4B, allenai/Olmo-Hybrid-7B, ...)')
     p.add_argument('--out', default=None, help='results directory (default runs_vllm)')
     a = p.parse_args()

@@ -379,7 +379,7 @@ def _fold_head(Sb, SCk, SCv, kbase, ksc, gb, ub, ubs, kx, ks, us, gnew, DK: tl.c
                 U = U * usv[:, None]
             acc, unused = _fold_acc(acc, acc, tl.trans(dec[:, None] * U), KfT, KfT, M, False)
             if BITS == 16:
-                tl.store(base, acc.to(tl.bfloat16), mask=km)
+                tl.store(base, acc.to(base.dtype.element_ty), mask=km)         # bf16 or fp32 state
             else:
                 if AXK:
                     a3 = tl.reshape(acc, (FBV, NGP, GROUP))

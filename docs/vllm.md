@@ -16,6 +16,32 @@ below.
 | Mamba2 / SSD | MambaMixer2: NemotronH, Falcon-H1, Granite-4.0-H, Zamba2, Mamba2 | same | any (padded, masked) | one-launch slot step | `mamba_chunk_scan_combined_varlen` from dequantized slot |
 | KDA | Ling-3.0 (`BailingMoeV3KimiDeltaAttention`) | same | d_k = d_v powers of two, d_v <= 256 | one-launch slot step | `chunk_kda` from dequantized slot |
 
+## External quantizer (Qwen3.5 / Qwen3-Next GDN)
+
+`STATEQUANT_VLLM=external:<file.py or module>:<function>` plugs in any state quantizer `fn(S, layer) -> S_hat`
+(S fp32 `[B, H, d_k, d_v]`, canonical layout; `layer` = ordinal among the model's GDN layers in model order, as
+`statequant.find_layers`). The slot holds an unpacked state (`STATEQUANT_VLLM_EXTERNAL_DTYPE=fp32` (default) or
+`bf16`) with the usual decode buffer; `fn` replaces it at the end of every prefill chunk and at every buffer fold
+(every m decoded tokens), the points where the packed formats round. Needs `enforce_eager=True` (fn then runs on
+the folded sequences only); `STATEQUANT_VLLM_EXTERNAL_GRAPHS=1` allows CUDA graphs for a capture-safe fn, which is
+then called on every decode row at every step. No tensor parallelism. `STATEQUANT_VLLM=fp32` is the matching
+control (fp32 slot, buffer, no fn).
+
+Check (L40, Qwen3.5-4B, 32 windows, m = 8, int8 buffer; `tests/vllm_packed_check.py --engine ext_identity|ext_int4k64`,
+functions in `tests/_external_fns.py`):
+
+| engine | graphs: decode loss | eager: decode loss |
+|---|---:|---:|
+| fp32 (plugin control) | 2.1101 | 2.1126 |
+| external identity | 2.1101 | 2.1125 |
+| pace4 (packed int4 k g64) | 2.1126 | 2.1237 |
+| external `Quantizer(4, 'k', 64, scale_dtype='fp16').fake` | 2.1173 | 2.1174 |
+
+The external int4 run and pace4 hold the same states at the slot level (tests: equal after every fold except for
+rare single-code flips), but a 4-bit state makes this loss sensitive to any numerical change: pace4 itself moves by
+0.011 between graph and eager mode (which also changes torch.compile), so differences below ~0.01 between such runs
+are not meaningful at this sample size.
+
 ## Qwen3.5-4B
 
 **vLLM 0.32 end to end** (`tests/vllm_packed_check.py`, A100, m = 8, int8 buffer, 32 WikiText-103 windows; concurrency at a fixed 16 GiB KV budget).

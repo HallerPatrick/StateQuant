@@ -16,7 +16,8 @@ Per-slot blob (one layer; offsets aligned to 16 bytes, fields in this order):
     SC      fp16  scales            axis 'k': [HV, d_v, d_k/g]; axis 'v': [HV, d_v/g, d_k]; bf16 state: none
     KBS     fp16  [HK, m]           buffered key scales (int8 buffer only)
     UBS     fp16  [HV, m]           buffered delta-value scales (int8 buffer only)
-    S       codes                   int4: uint8 [HV, d_v, d_k/2]; int8: int8 [HV, d_v, d_k]; bf16: bf16 [HV, d_v, d_k]
+    S       codes                   int4: uint8 [HV, d_v, d_k/2]; int8: int8 [HV, d_v, d_k]; float state: bf16 or
+                                    fp32 [HV, d_v, d_k] (``state_dtype``)
     KB      int8 / bf16 [HK, m, d_k]  buffered normalised keys, per KEY head
     UB      int8 / bf16 [HV, m, d_v]  buffered delta values, per value head
 
@@ -39,7 +40,8 @@ _ALIGN = 16
 class SlotLayout:
     """The packed per-slot layout of one GDN layer and the operations on a batch of slots.
 
-    fmt          ``Quantizer(4 or 8, 'k' or 'v', group)`` or 'bf16' (see ``fold.packed_format``)
+    fmt          ``Quantizer(4 or 8, 'k' or 'v', group)``, 'bf16' or 'fp32' (an unpacked float state; see
+                 ``fold.packed_format``)
     hv, hk       value / key heads of the layer (on this rank); hv % hk == 0
     dk, dv       head dims (any even d_k >= 16, d_v a multiple of 32; see ``fold.check_dims``)
     m            buffer length (power of two)
@@ -50,6 +52,8 @@ class SlotLayout:
 
     def __init__(self, fmt, hv, hk, dk, dv, m=8, buffer_bits=8, fused=None):
         self.fused = fused
+        self.state_dtype = torch.float32 if fmt == 'fp32' else torch.bfloat16
+        fmt = 'bf16' if fmt == 'fp32' else fmt
         self.fmt = packed_format(fmt)
         self.bits = _bits(self.fmt)
         self.HV, self.HK, self.DK, self.DV, self.m = hv, hk, dk, dv, m
@@ -71,7 +75,7 @@ class SlotLayout:
 
         bdt = torch.int8 if self.qbuf else torch.bfloat16
         if self.fmt is None:
-            sdt, sshape, scshape = torch.bfloat16, (hv, dv, dk), None
+            sdt, sshape, scshape = self.state_dtype, (hv, dv, dk), None
         else:
             sdt = torch.uint8 if self.bits == 4 else torch.int8
             sshape = (hv, dv, dk // 2) if self.bits == 4 else (hv, dv, dk)
@@ -91,7 +95,8 @@ class SlotLayout:
         self.nbytes = off
 
     def __repr__(self):
-        f = 'bf16' if self.fmt is None else f'int{self.bits}-{self.fmt.axis}-g{self.group}'
+        f = ('bf16' if self.state_dtype == torch.bfloat16 else 'fp32') if self.fmt is None else \
+            f'int{self.bits}-{self.fmt.axis}-g{self.group}'
         return (f'SlotLayout({f}, hv={self.HV}, hk={self.HK}, dk={self.DK}, dv={self.DV}, m={self.m}, '
                 f'buffer_bits={self.buffer_bits}, {self.nbytes} B/slot)')
 
@@ -233,8 +238,13 @@ class SlotLayout:
         buffers (n = 0, running decay 0)."""
         idx = idx.long()
         P = idx.shape[0]
-        codes, sc = pack_vk(S.reshape(P * self.HV, self.DV, self.DK), self.fmt)
         V = views
+        if self.fmt is None and getattr(self, 'state_dtype', None) == torch.float32:   # fp32 state: as is
+            V['S'][idx] = S.reshape(P, *V['S'].shape[1:]).float()
+            V['NPTR'][idx] = 0
+            V['GCUR'][idx] = 0.
+            return
+        codes, sc = pack_vk(S.reshape(P * self.HV, self.DV, self.DK), self.fmt)
         V['S'][idx] = codes.view(P, *V['S'].shape[1:])
         if 'SC' in V:
             V['SC'][idx] = sc.view(P, *V['SC'].shape[1:])
