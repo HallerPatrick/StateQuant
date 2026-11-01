@@ -13,6 +13,9 @@ Activation (every engine / worker process loads ``vllm.general_plugins``; this o
                                              float state (STATEQUANT_VLLM_EXTERNAL_DTYPE=fp32 (default) | bf16) and at
                                              every rounding point it is replaced by fn(S, layer) cast to that dtype;
                                              see "External quantizer" below
+    STATEQUANT_VLLM=gga:<plan.pt>[:pw]       GGA / STEP plan (``StepQuant.save``), with :pw the PW-S8 window
+                                             (STATEQUANT_VLLM_PW_M=8), arXiv 2610.39931; Qwen GDN only, an fp32
+                                             emulation of the stored values (``vllm_gga``)
     STATEQUANT_VLLM_M=8                      decode buffer length m (power of two)
     STATEQUANT_VLLM_BUFFER_BITS=8            buffered keys / delta values: 8 (int8 + fp16 scale) or 16 (bf16)
     STATEQUANT_VLLM_LAYERS=gdn,mamba2,kda    layer types to pack (default: all): ``gdn`` = Qwen3.5 / Qwen3-Next GDN
@@ -81,6 +84,7 @@ def config():
         return None
     from ..quantizer import Quantizer
     _STATE.pop('external', None)
+    _STATE.pop('gga', None)
     if mode.startswith('external:'):
         raw = os.environ[ENV].strip()[len('external:'):]
         src, _, fn = raw.rpartition(':')
@@ -89,6 +93,13 @@ def config():
         assert dt in ('fp32', 'bf16'), f'STATEQUANT_VLLM_EXTERNAL_DTYPE={dt!r}: use fp32 or bf16'
         _STATE['external'] = (src, fn)
         fmt = dt
+    elif mode.startswith('gga:'):
+        raw = os.environ[ENV].strip()[len('gga:'):]
+        pw = raw.endswith(':pw')
+        path = raw[:-3] if pw else raw
+        assert os.path.exists(path), f'{ENV}=gga:<plan.pt>[:pw]: no plan file {path!r}'
+        _STATE['gga'] = (path, pw, int(os.environ.get('STATEQUANT_VLLM_PW_M', '8')))
+        fmt = 'gga'
     elif mode == 'bf16':
         fmt = 'bf16'
     elif mode == 'fp32':
@@ -112,6 +123,15 @@ def layout(hv, hk, dk, dv):
     from ..kernels.slots import SlotLayout
     fmt, m, bb, fused = _STATE['cfg']
     key = (hv, hk, dk, dv)
+    if fmt == 'gga':
+        if key not in _STATE.setdefault('layouts', {}):
+            from ..step_quant import StepQuant
+            from .vllm_gga import GGALayout
+            path, pw, pm = _STATE['gga']
+            if 'gga_method' not in _STATE:
+                _STATE['gga_method'] = StepQuant.load(path)
+            _STATE['layouts'][key] = GGALayout(_STATE['gga_method'], hv, hk, dk, dv, pw=pw, m=pm)
+        return _STATE['layouts'][key]
     if key not in _STATE.setdefault('layouts', {}):
         _STATE['layouts'][key] = SlotLayout(fmt, hv, hk, dk, dv, m=m, buffer_bits=bb, fused=fused)
     return _STATE['layouts'][key]
@@ -124,13 +144,13 @@ def register():
         return
     _STATE['cfg'] = cfg
     kinds = layer_kinds()
-    if cfg[0] == 'fp32':                                    # fp32 / external: Qwen GDN layers only
+    if cfg[0] in ('fp32', 'gga'):                           # fp32 / external / gga: Qwen GDN layers only
         assert kinds == ('gdn',) or kinds == LAYER_KINDS, f'{ENV}={os.environ.get(ENV)!r}: GDN layers only'
         kinds = ('gdn',)
     if 'gdn' in kinds:
         _patch_calculators()
         _patch_layer()
-        if cfg[0] != 'fp32':
+        if cfg[0] not in ('fp32', 'gga'):
             from . import vllm_olmo
             vllm_olmo.patch(layout)
     if 'mamba2' in kinds:
@@ -287,6 +307,9 @@ def _patch_layer():
                                  self.head_k_dim, self.head_v_dim)
         self._sq_views = None
         self._sq_external = None
+        self._sq_lk = {}
+        if getattr(self._sq_layout, 'per_layer', False):     # per-layer plans (gga): the layout needs the ordinal
+            self._sq_lk = {'layer': gdn_ordinal(config, self.prefix)}
         if _STATE.get('external') is not None:
             assert self.tp_size == 1, 'statequant external quantizer: no tensor parallelism'
             graphs = os.environ.get('STATEQUANT_VLLM_EXTERNAL_GRAPHS', '0').strip() == '1'
@@ -369,7 +392,7 @@ def _forward_core(self, mixed_qkv, b, a, core_attn_out):
         k = xd[:, kd:2 * kd].unflatten(1, (lay.HK, lay.DK))
         v = xd[:, 2 * kd:].unflatten(1, (lay.HV, lay.DV))
         lay.step(views, idx, q, k, v, core_attn_out[:rows], self.head_k_dim ** -0.5,
-                 gate=(a[:rows], b[:rows], self.A_log, self.dt_bias))
+                 gate=(a[:rows], b[:rows], self.A_log, self.dt_bias), **self._sq_lk)
         if self._sq_external is not None:                    # rows whose buffer just folded: S <- fn(S)
             ordinal, graphs = self._sq_external
             folded = (views['NPTR'][idx.long(), 0] == 0) & (idx > 0)
@@ -389,7 +412,7 @@ def _forward_core(self, mixed_qkv, b, a, core_attn_out):
             num_k_heads=lay.HK, head_k_dim=self.head_k_dim, head_v_dim=self.head_v_dim,
             apply_l2norm=True, output_g_exp=False)
         pidx = md.prefill_state_indices
-        init = lay.read(views, pidx)
+        init = lay.read(views, pidx, **self._sq_lk)
         init = torch.where(md.prefill_has_initial_state[:, None, None, None], init, 0.).contiguous()
         o, last = self.chunk_gated_delta_rule(
             q=q.unsqueeze(0), k=k.unsqueeze(0), v=v.unsqueeze(0), g=g.unsqueeze(0), beta=beta.unsqueeze(0),
@@ -398,6 +421,6 @@ def _forward_core(self, mixed_qkv, b, a, core_attn_out):
             aiter_prefill_metadata=md.aiter_prefill_metadata)
         if self._sq_external is not None:                    # the stored state after a prefill chunk: fn(S)
             last = apply_external(last, self._sq_external[0])
-        lay.write(views, pidx, last)
+        lay.write(views, pidx, last, **self._sq_lk)
         o = o.squeeze(0)
         core_attn_out[nd:nd + o.shape[0]] = o

@@ -7,7 +7,8 @@ One engine configuration per process (the plugin is chosen by STATEQUANT_VLLM be
     python tests/vllm_packed_check.py run   --engine stock|stockbf16|stockfp32|bf16|fp32|pace4|int4v|int8k|
                                                      ext_identity|ext_int4k64 [--tasks ...]
                                             (fp32: the plugin's unpacked fp32 state with the decode buffer;
-                                             ext_*: STATEQUANT_VLLM=external:tests/_external_fns.py:<fn>, eager)
+                                             ext_*: STATEQUANT_VLLM=external:tests/_external_fns.py:<fn>, eager;
+                                             gga:<plan.pt>[:pw]: a saved GGA / STEP plan, + PW-S8)
                                             (stock: vLLM as shipped: fp32 GDN state from Qwen3.5's mamba_ssm_dtype,
                                              the model dtype (bf16) for OLMo-Hybrid; stockbf16 / stockfp32: stock
                                              with mamba_ssm_cache_dtype='bfloat16' / 'float32')
@@ -61,6 +62,15 @@ def windows(ids, n, seq):
 
 
 EXTERNAL = {'ext_identity': 'identity', 'ext_int4k64': 'int4_k64'}    # STATEQUANT_VLLM=external:_external_fns.py:<fn>
+
+
+def tag(engine):
+    """File-name form of an engine (gga:<plan path>[:pw] -> gga_<plan stem>[_pw])."""
+    if engine.startswith('gga:'):
+        pw = engine.endswith(':pw')
+        stem = os.path.splitext(os.path.basename(engine[4:-3] if pw else engine[4:]))[0]
+        return f'gga_{stem}' + ('_pw' if pw else '')
+    return engine
 
 
 def set_engine_env(engine):
@@ -168,7 +178,7 @@ def cmd_run(a):
     tok = AutoTokenizer.from_pretrained(MODEL)
     tasks = a.tasks.split(',')
     res = {'engine': a.engine, 'env': {k: v for k, v in os.environ.items() if k.startswith('STATEQUANT')}}
-    path = os.path.join(OUT, f'{a.engine}{a.suffix}.json')
+    path = os.path.join(OUT, f'{tag(a.engine)}{a.suffix}.json')
     if os.path.exists(path):
         res = {**json.load(open(path)), **res}
     os.makedirs(OUT, exist_ok=True)
@@ -199,7 +209,7 @@ def cmd_mem(a):
             'mamba_page_size_padded': cfg.mamba_page_size_padded}
     print('[mem]', json.dumps(info), flush=True)
     os.makedirs(OUT, exist_ok=True)
-    json.dump(info, open(os.path.join(OUT, f'mem_{a.engine}_{a.max_model_len}.json'), 'w'), indent=1)
+    json.dump(info, open(os.path.join(OUT, f'mem_{tag(a.engine)}_{a.max_model_len}.json'), 'w'), indent=1)
     del llm, core
     gc.collect()
 
@@ -233,6 +243,13 @@ def cmd_hf(a):
         ids = wins[i:i + a.hf_batch].cuda()
         if a.engine == 'stock':
             nlls.append(run(ids))
+        elif a.engine.startswith('gga:'):                # the reference path of the same plan (+ PW-S8)
+            pw = a.engine.endswith(':pw')
+            q = sq.StepQuant.load(a.engine[4:-3] if pw else a.engine[4:])
+            q.schedule = sq.Schedule(prefill=1 << 30, decode=1, buffer_bits=0, prompt_end=True)
+            meth = sq.pure_write(q, m=int(os.environ.get('STATEQUANT_VLLM_PW_M', '8'))) if pw else q
+            with sq.apply(model, meth):
+                nlls.append(run(ids))
         else:
             fmt = 'bf16' if a.engine == 'bf16' else sq.Quantizer(*_PRESETS[a.engine])
             m = int(os.environ.get('STATEQUANT_VLLM_M', '8'))
@@ -246,7 +263,7 @@ def cmd_hf(a):
            'hf_loss_decode_per_pos': nll.mean(0).tolist(), 'hf_loss_decode_per_win': nll.mean(1).tolist()}
     print(f'[hf {a.engine}] teacher-forced decode loss {res["hf_loss_decode"]:.4f}', flush=True)
     os.makedirs(OUT, exist_ok=True)
-    json.dump(res, open(os.path.join(OUT, f'hf_{a.engine}{a.suffix}.json'), 'w'), indent=1)
+    json.dump(res, open(os.path.join(OUT, f'hf_{tag(a.engine)}{a.suffix}.json'), 'w'), indent=1)
 
 
 def _agree(a, b):

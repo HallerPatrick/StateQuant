@@ -42,6 +42,24 @@ rare single-code flips), but a 4-bit state makes this loss sensitive to any nume
 0.011 between graph and eager mode (which also changes torch.compile), so differences below ~0.01 between such runs
 are not meaningful at this sample size.
 
+## GGA / PW-S8 (arXiv 2610.39931), emulated
+
+`STATEQUANT_VLLM=gga:<plan.pt>[:pw]` (plan from `StepQuant.save`, e.g. a calibrated `sq.gga(4)`; `:pw` adds the
+PW-S8 window, `STATEQUANT_VLLM_PW_M=8`): Qwen3.5 / Qwen3-Next GDN, CUDA-graph capturable, an emulation of the stored
+values (`integrations/vllm_gga.py`): the slot holds the old state as fp32 values on each head's frozen width
+(re-fitted with the Triton STEP fit at every decoded token) and the window as reconstructed fp32 values, so the KV
+planner sees a larger slot (lower `max_num_seqs` or raise `gpu_memory_utilization`); `report()` gives the paper's
+storage. Prefill rounds at the end of each prefill chunk. The slot step agrees with the reference path step by step
+(tests/test_vllm_gga.py).
+
+Qwen3.5-4B, 32 WikiText-103 windows, L40 (GGA@4 plan: 32 x 2048 WikiText-2 train):
+
+| engine | vLLM graphs | vLLM eager | HF reference path |
+|---|---:|---:|---:|
+| fp32 plugin control | 2.1101 | 2.1126 | |
+| GGA@4 (4.746 b) | 2.1317 | 2.1299 | 2.1363 |
+| GGA@4 + PW-S8 (5.778 b) | 2.1171 | 2.1170 | 2.1150 |
+
 ## Qwen3.5-4B
 
 **vLLM 0.32 end to end** (`tests/vllm_packed_check.py`, A100, m = 8, int8 buffer, 32 WikiText-103 windows; concurrency at a fixed 16 GiB KV budget).

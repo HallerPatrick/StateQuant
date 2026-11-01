@@ -121,10 +121,8 @@ class GGA(StepQuant):
                 self.orig, self.fam, self.op = orig, fam, op
 
             def __call__(self, *args, **kw):
-                if args:
-                    kw = {**dict(zip(self.op.positional, args)), **kw}
-                    args = ()
-                out = self.orig(**kw)
+                out = self.orig(*args, **kw)                           # as called (op argument names vary)
+                kw = {**dict(zip(self.op.positional, args)), **kw}     # the canonical names, for the inputs
                 o = out[0] if isinstance(out, tuple) else out
                 assert o.requires_grad, 'GGA calibration: the op output has no autograd graph'
                 o.retain_grad()
