@@ -61,13 +61,15 @@ class _Carry:
     With ``stateful`` (a method's ``piece(S, layer, piece)``, ``statequant.methods_ext``) EVERY piece is handed over,
     with ``piece.hit`` / ``.start`` / ``.prompt_end`` set, and its return value is carried. ``prepare(S, layer, piece)``
     (a stateful method's optional ``prepare``) runs before every piece that continues a state and returns the state
-    the op starts from."""
+    the op starts from; ``output_delta(layer)`` (optional) returns a correction added to the op's output of that
+    piece (or None)."""
 
     def __init__(self, orig, schedule: Schedule, boundary, positions: dict, family=_GDN, op=None, stateful=None,
                  prepare=None):
         self.orig, self.sch, self.boundary, self.pos = orig, schedule, boundary, positions
         self.fam, self.op = family, op or family.ops[0]
         self.stateful, self.prepare = stateful, prepare
+        self.out_delta = None
 
     def _kwargs(self, args, kw):
         if args:
@@ -117,6 +119,10 @@ class _Carry:
                                   S, full)
             S0 = S
             o, S = fam.call(op, self.orig, piece, keep, S, npos, raw)
+            if self.out_delta is not None:               # a stateful method's correction of the op's readout
+                d = self.out_delta(layer)
+                if d is not None:
+                    o = (o.float() + d.reshape(o.shape)).to(o.dtype)
             outs.append(o)
             off += step
             pos = pos + step
@@ -318,8 +324,9 @@ def apply(model, method, schedule: Schedule | None = None, backend: str = 'refer
             method.reset()
 
         def carry(orig, sch, bnd, pos, fam, op):
-            return _Carry(orig, sch, bnd, pos, fam, op, stateful=method.piece,
-                          prepare=getattr(method, 'prepare', None))
+            c = _Carry(orig, sch, bnd, pos, fam, op, stateful=method.piece, prepare=getattr(method, 'prepare', None))
+            c.out_delta = getattr(method, 'output_delta', None)
+            return c
     elif backend == 'packed':
         from .methods import Uniform
         assert isinstance(method, Uniform), 'the packed backend supports Uniform formats only'

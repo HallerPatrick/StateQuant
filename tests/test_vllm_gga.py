@@ -75,6 +75,8 @@ def test_slot_step_matches_reference(pw):
             S = ref._logical(st)
             S = ref.prepare(S, 0, Piece(kw, GDN, 0, None, torch.full((B,), 3 + t)))
             o, Sn = delta(S, kw)
+            d = ref.output_delta(0)
+            o = o if d is None else o + d[:, 0]
             Snew = ref.piece(Sn, 0, Piece(kw, GDN, 0, S, torch.full((B,), 3 + t), hit=torch.ones(B, dtype=torch.bool)))
             Oref = ref.layers[0]['O']
         else:

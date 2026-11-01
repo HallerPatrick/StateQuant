@@ -88,7 +88,9 @@ def _alg1(O, R, toks, base, m, enc):
     return outs, O, R
 
 
-def test_pw_matches_algorithm1():
+@pytest.mark.parametrize('extreme', [False, True])
+def test_pw_matches_algorithm1(extreme):
+    """Also with decays near 0 and beta near 1 (extreme), where A is (nearly) singular."""
     torch.manual_seed(0)
     B, H, dk, dv, m, steps = 2, 3, 32, 32, 4, 11
     base = _Base(torch.tensor([4, 16, 2]), sq.Quantizer(4, 'k', 32))
@@ -102,7 +104,10 @@ def test_pw_matches_algorithm1():
     toks = []
     for _ in range(steps):
         q, k = torch.randn(B, H, dk), torch.nn.functional.normalize(torch.randn(B, H, dk), dim=-1)
-        toks.append((q, k, torch.randn(B, H, dv), torch.rand(B, H) * 0.9, -torch.rand(B, H) * 0.2))
+        if extreme:
+            toks.append((q, k, torch.randn(B, H, dv), 1 - torch.rand(B, H) * 1e-7, -torch.rand(B, H) * 60))
+        else:
+            toks.append((q, k, torch.randn(B, H, dv), torch.rand(B, H) * 0.9, -torch.rand(B, H) * 0.2))
     two = {n: torch.cat([x, x], 1) for n, x in kw_of(*toks[0]).items() if torch.is_tensor(x)}
     O = pw.piece(S0, 0, Piece({**two, 'scale': 1.0}, GDN, 0, None, torch.full((B,), 2), hit=torch.ones(B, dtype=torch.bool),
                               start=True, prompt_end=True))
@@ -116,9 +121,12 @@ def test_pw_matches_algorithm1():
         u = x['beta'][:, 0][..., None] * (x['v'][:, 0] - torch.einsum('bhkv,bhk->bhv', Sa, x['k'][:, 0]))
         Sn = Sa + x['k'][:, 0][..., None] * u[:, :, None]
         o = torch.einsum('bhkv,bhk->bhv', Sn, x['q'][:, 0])
+        d = pw.output_delta(0)
+        if d is not None:
+            o = o + d[:, 0]
         S = pw.piece(Sn, 0, Piece(kw, GDN, 0, S, torch.full((B,), 3 + t), hit=torch.ones(B, dtype=torch.bool)))
+        assert torch.isfinite(o).all() and torch.isfinite(S).all()
         err = ((o - ref_outs[t]).norm() / ref_outs[t].norm()).item()
-        print(t, f'{err:.1e}')
         assert err < 1e-4, (t, err)
 
 

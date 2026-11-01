@@ -22,8 +22,8 @@ with an FP32 scale amax / 448, propagated p <- R(A_t p) and re-encoded at every 
 A O + sum R(A p) v^T + beta k v^T, then the oldest pair (if m are queued) is merged into O, O is re-rounded and
 (R(beta k), R(v)) is enqueued. FP16 pivots keep the full update in fp16 without a queue. Prefill follows the base
 path (the queue starts empty at the first decoded token; the post-prefill state is rounded at the prompt end), and
-every request decodes in lockstep. The op is handed S' = O + sum_j A^-1 R(A p_j) v_j^T, so that its own update
-and readout give exactly Alg. 1's (A is invertible for beta < 1, e.g. sigmoid gates; done in float64).
+every request decodes in lockstep. The op is handed S' = O + sum_j p_j v_j^T and its readout is corrected by
+sum_j ((R(A p_j) - A p_j)^T q) v_j (the FP8 re-encoding of the propagated factors), which gives Alg. 1's output.
 
 Storage (App. B.5, Table 3): STEP accounting (``StepQuant.bits_per_value``) plus, with PW, a queue for every head
 (pivots included): 8 m (d_k + d_v + 8) / (d_k d_v) = 1.03125 b/value at d_k = d_v = 128, m = 8.
@@ -261,8 +261,12 @@ class PureWrite(StatefulMethod):
             return getattr(self.base, name)
         raise AttributeError(name)
 
-    def _pivots(self, layer, dev):
-        return (self.base.plan[layer][0] == 16).to(dev)                # [H]
+    def _pivots(self, layer, dev, H):
+        """fp16 pivot heads [H] (bases without a plan entry, e.g. other quantizers: none)."""
+        p = getattr(self.base, 'plan', None) or {}
+        if layer not in p or p[layer][0] is None:
+            return torch.zeros(H, dtype=torch.bool, device=dev)
+        return (torch.as_tensor(p[layer][0]) == 16).to(dev)
 
     @staticmethod
     def _A(x, k, beta, a):
@@ -271,14 +275,6 @@ class PureWrite(StatefulMethod):
             return a[..., None] * (x - beta[..., None] * k * (k * x).sum(-1, keepdim=True))
         return a[..., None, None] * (x - beta[..., None, None] * k[..., None] * torch.einsum('bhk,bhkv->bhv', k, x)[:, :, None])
 
-    @staticmethod
-    def _Ainv(x, k, beta, a):
-        """A^-1 x for x [B, H, d_k] (float64): (1/a) (x + beta / (1 - beta |k|^2) k (k^T x))."""
-        x, k, beta, a = x.double(), k.double(), beta.double(), a.double()
-        kk = (k * k).sum(-1, keepdim=True)
-        c = beta[..., None] / (1 - beta[..., None] * kk)
-        return ((x + c * k * (k * x).sum(-1, keepdim=True)) / a[..., None]).float()
-
     def _logical(self, st):
         S = st['O'].clone()
         for p, v in st['Q']:
@@ -286,16 +282,28 @@ class PureWrite(StatefulMethod):
         return S
 
     def prepare(self, S, layer, pc):
+        """The op starts from S' = O + sum_j p_j v_j^T, so that its own update is
+        A O + sum_j (A p_j) v_j^T + beta k v^T; Algorithm 1 reads R(A p_j) instead of A p_j, and the difference
+        sum_j ((R(A p_j) - A p_j)^T q) v_j is added to the op's output (``output_delta``)."""
         st = (self.layers or {}).get(layer)
+        self._delta = None
         if st is None or pc.inputs()['k'].shape[1] != 1:              # the prompt (or no decode state yet)
             return S
+        x = pc.inputs()
         lg, k, beta, _, _ = terms(pc)
-        a, k, beta = lg[:, 0].exp(), k[:, 0], beta[:, 0].float()
-        st['R'] = [self.enc(self._A(p, k, beta, a)) for p, _ in st['Q']]   # propagated + re-encoded left factors
-        Sp = st['O'].clone()
-        for (p, v), r in zip(st['Q'], st['R']):
-            Sp = Sp + self._Ainv(r, k, beta, a)[..., None] * v[..., None, :]
-        return Sp
+        a, k, beta, q = lg[:, 0].exp(), k[:, 0], beta[:, 0].float(), x['q'][:, 0].float()
+        Ap = [self._A(p, k, beta, a) for p, _ in st['Q']]
+        st['R'] = [self.enc(x_) for x_ in Ap]                          # propagated + re-encoded left factors
+        if st['Q']:
+            d = 0.
+            for (p, v), r, ap in zip(st['Q'], st['R'], Ap):
+                d = d + ((r - ap) * q).sum(-1, keepdim=True) * v
+            self._delta = d[:, None]                                   # [B, 1, H, d_v]
+        return self._logical(st)
+
+    def output_delta(self, layer):
+        d, self._delta = getattr(self, '_delta', None), None
+        return d
 
     def step(self, ctx):
         pc, layer, S = ctx.pc, ctx.layer, ctx.S_out
@@ -311,7 +319,7 @@ class PureWrite(StatefulMethod):
             return O
         lg, k, beta, v, _ = terms(pc)
         a, k, beta, v = lg[:, 0].exp(), k[:, 0], beta[:, 0].float(), v[:, 0]
-        piv = self._pivots(layer, S.device)
+        piv = self._pivots(layer, S.device, S.shape[1])
         Q = list(zip(st.get('R', []), [vv for _, vv in st['Q']]))
         Om = self._A(st['O'], k, beta, a)                              # O_pre = A O
         if len(Q) == self.m:
