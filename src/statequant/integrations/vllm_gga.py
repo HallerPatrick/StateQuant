@@ -22,12 +22,7 @@ import math
 import torch
 
 from ..kernels.slots import _ALIGN
-
-
-def fp8_vec(x):
-    s = x.abs().amax(-1, keepdim=True) / 448.
-    safe = torch.where(s > 0, s, torch.ones_like(s))
-    return torch.where(s > 0, (x / safe).to(torch.float8_e4m3fn).float() * safe, torch.zeros_like(x))
+from ..methods_ext.gga import fp8_vec
 
 
 class GGALayout:

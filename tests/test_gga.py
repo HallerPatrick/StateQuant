@@ -170,3 +170,12 @@ def test_gga_calibrate_and_apply(tiny):
         assert torch.isfinite(out).all()
     r = sq.report(tiny, sq.pure_write(q))
     assert r['payload_bits_per_value'] == pytest.approx(q.bits_per_value(32, 32) + 8 * 8 * (32 + 32 + 8) / 32 ** 2)
+
+
+def test_fp8_vec_tiny_vectors():
+    """Tiny vectors (subnormal scale) stay finite and close."""
+    x = torch.randn(64, 128) * torch.logspace(-44, 0, 64)[:, None]
+    y = fp8_vec(x)
+    assert torch.isfinite(y).all()
+    big = x.abs().amax(-1) > 1e-36
+    assert ((y - x).abs().amax(-1)[big] <= x.abs().amax(-1)[big] * 0.07).all()
