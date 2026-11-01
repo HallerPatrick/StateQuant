@@ -29,6 +29,14 @@ def _encode(y, qmax, TWO: tl.constexpr):
 
 @triton.jit
 def _fit_head(x, w, m, qmax, DK, DV, DKP: tl.constexpr, DVP: tl.constexpr, TWO: tl.constexpr, GROUP: tl.constexpr):
+    r, rf, c, z = _fit_parts(x, w, m, qmax, DK, DV, DKP, DVP, TWO, GROUP)
+    return rf * c[None, :] * z
+
+
+@triton.jit
+def _fit_parts(x, w, m, qmax, DK, DV, DKP: tl.constexpr, DVP: tl.constexpr, TWO: tl.constexpr, GROUP: tl.constexpr):
+    """The fit's stored parts: row factors r ([DKP], or [DKP, DVP / GROUP] for 2 bits), rf = r broadcast to the
+    tile, column factors c [DVP] and codes z [DKP, DVP] (signed levels); the state is rf * c * z."""
     ax = tl.where(m, tl.abs(x), 0.)
     if TWO:
         NG: tl.constexpr = DVP // GROUP
@@ -49,7 +57,7 @@ def _fit_head(x, w, m, qmax, DK, DV, DKP: tl.constexpr, DVP: tl.constexpr, TWO: 
     den = tl.sum(tl.where(m, ww * (vv * vv), 0.), 0)
     c = _half(tl.where(den > 0, tl.div_rn(num, tl.maximum(den, 1e-30)), c))
     z = _encode(tl.div_rn(y0, c[None, :]), qmax, TWO)
-    return rf * c[None, :] * z
+    return r, rf, c, z
 
 
 @triton.jit

@@ -226,7 +226,8 @@ def fp8_vec(x):
     """R_FP8 of App. B.4 per vector (last dim): s = amax / 448, s * fp32(e4m3fn(x / s)); 0 -> 0. x / s is clamped
     to +-448 before the cast: torch's e4m3fn cast does not saturate (out of range -> NaN), and for tiny vectors (a
     propagated factor of a fast-decaying head) s is an fp32 subnormal whose rounding puts x / s above 448."""
-    s = x.abs().amax(-1, keepdim=True) / 448.
+    amax = x.abs().amax(-1, keepdim=True)
+    s = amax / torch.full_like(amax, 448.)          # true division (a Python-scalar divisor multiplies by 1/448)
     safe = torch.where(s > 0, s, torch.ones_like(s))
     return torch.where(s > 0, (x / safe).clamp(-448., 448.).to(torch.float8_e4m3fn).float() * safe,
                        torch.zeros_like(x))

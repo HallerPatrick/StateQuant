@@ -14,8 +14,9 @@ Activation (every engine / worker process loads ``vllm.general_plugins``; this o
                                              every rounding point it is replaced by fn(S, layer) cast to that dtype;
                                              see "External quantizer" below
     STATEQUANT_VLLM=gga:<plan.pt>[:pw]       GGA / STEP plan (``StepQuant.save``), with :pw the PW-S8 window
-                                             (STATEQUANT_VLLM_PW_M=8), arXiv 2610.39931; Qwen GDN only, an fp32
-                                             emulation of the stored values (``vllm_gga``)
+                                             (STATEQUANT_VLLM_PW_M=8), arXiv 2610.39931; Qwen GDN only; packed
+                                             mixed-width storage + FP8 window (``vllm_gga.GGAPacked``), or with
+                                             STATEQUANT_VLLM_GGA_STORAGE=emulated an fp32 emulation (``GGALayout``)
     STATEQUANT_VLLM_M=8                      decode buffer length m (power of two)
     STATEQUANT_VLLM_BUFFER_BITS=8            buffered keys / delta values: 8 (int8 + fp16 scale) or 16 (bf16)
     STATEQUANT_VLLM_LAYERS=gdn,mamba2,kda    layer types to pack (default: all): ``gdn`` = Qwen3.5 / Qwen3-Next GDN
@@ -126,11 +127,14 @@ def layout(hv, hk, dk, dv):
     if fmt == 'gga':
         if key not in _STATE.setdefault('layouts', {}):
             from ..step_quant import StepQuant
-            from .vllm_gga import GGALayout
+            from .vllm_gga import GGALayout, GGAPacked
             path, pw, pm = _STATE['gga']
             if 'gga_method' not in _STATE:
                 _STATE['gga_method'] = StepQuant.load(path)
-            _STATE['layouts'][key] = GGALayout(_STATE['gga_method'], hv, hk, dk, dv, pw=pw, m=pm)
+            storage = os.environ.get('STATEQUANT_VLLM_GGA_STORAGE', 'packed').strip().lower()
+            assert storage in ('packed', 'emulated'), f'STATEQUANT_VLLM_GGA_STORAGE={storage!r}: packed or emulated'
+            cls = GGAPacked if storage == 'packed' else GGALayout
+            _STATE['layouts'][key] = cls(_STATE['gga_method'], hv, hk, dk, dv, pw=pw, m=pm)
         return _STATE['layouts'][key]
     if key not in _STATE.setdefault('layouts', {}):
         _STATE['layouts'][key] = SlotLayout(fmt, hv, hk, dk, dv, m=m, buffer_bits=bb, fused=fused)

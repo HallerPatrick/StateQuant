@@ -42,23 +42,44 @@ rare single-code flips), but a 4-bit state makes this loss sensitive to any nume
 0.011 between graph and eager mode (which also changes torch.compile), so differences below ~0.01 between such runs
 are not meaningful at this sample size.
 
-## GGA / PW-S8 (arXiv 2610.39931), emulated
+## GGA / PW-S8 (arXiv 2610.39931)
 
 `STATEQUANT_VLLM=gga:<plan.pt>[:pw]` (plan from `StepQuant.save`, e.g. a calibrated `sq.gga(4)`; `:pw` adds the
-PW-S8 window, `STATEQUANT_VLLM_PW_M=8`): Qwen3.5 / Qwen3-Next GDN, CUDA-graph capturable, an emulation of the stored
-values (`integrations/vllm_gga.py`): the slot holds the old state as fp32 values on each head's frozen width
-(re-fitted with the Triton STEP fit at every decoded token) and the window as reconstructed fp32 values, so the KV
-planner sees a larger slot (lower `max_num_seqs` or raise `gpu_memory_utilization`); `report()` gives the paper's
-storage. Prefill rounds at the end of each prefill chunk. The slot step agrees with the reference path step by step
-(tests/test_vllm_gga.py).
+PW-S8 window, `STATEQUANT_VLLM_PW_M=8`), Qwen3.5 / Qwen3-Next GDN, CUDA-graph capturable.
 
-Qwen3.5-4B, 32 WikiText-103 windows, L40 (GGA@4 plan: 32 x 2048 WikiText-2 train):
+- Packed (default, `integrations/vllm_gga.GGAPacked`, `kernels/_gga_triton.py`): per head its frozen width (2 / 4
+  / 6 / 8-bit codes with STEP's fp16 row / column factors, 2-bit group-32 rows; fp16 pivots) and the FP8 E4M3 window
+  (per-vector fp32 scales, a ring per head). One fused kernel per (decode row, head) unpacks, applies A, propagates
+  and re-encodes the window, reads out, merges the evicted pair, re-fits (the Triton STEP fit) and re-packs in place.
+  vLLM gives every GDN layer the same slot size, so the slot is the largest layer's: for the GGA@4 plan below
+  476,176 B (7.27 b/value) against the paper's mean 4.746 (+PW: 543,760 B, 8.30 vs 5.778).
+- `STATEQUANT_VLLM_GGA_STORAGE=emulated`: fp32 values of the same states (`GGALayout`), the reference for the packed
+  kernel (tests/test_gga_packed.py: pack / unpack bit-exact, the step from the same state to 1e-5, the window equal).
 
-| engine | vLLM graphs | vLLM eager | HF reference path |
+Prefill rounds at the end of each prefill chunk. Qwen3.5-4B, L40 (GGA@4 plan: 32 x 2048 WikiText-2 train):
+
+| engine | decode loss, packed (graphs) | emulated graphs / eager | HF reference path |
 |---|---:|---:|---:|
-| fp32 plugin control | 2.1101 | 2.1126 | |
-| GGA@4 (4.746 b) | 2.1317 | 2.1299 | 2.1363 |
-| GGA@4 + PW-S8 (5.778 b) | 2.1171 | 2.1170 | 2.1150 |
+| fp32 plugin control | 2.1101 | | |
+| pace4 packed | 2.1126 | | |
+| GGA@4 | 2.1373 | 2.1317 / 2.1299 | 2.1363 |
+| GGA@4 + PW-S8 | 2.1164 | 2.1171 / 2.1170 | 2.1150 |
+
+(32 WikiText-103 windows, 512-token prompts, 128 teacher-forced decode tokens; differences below ~0.01 are noise.)
+
+Decode step per GDN layer (CUDA graph, Qwen3.5-4B shapes, L40), ms:
+
+| | B=1 | 16 | 64 | 256 |
+|---|---:|---:|---:|---:|
+| pace4 packed (fused, rounds every 8 tokens) | 0.005 | 0.011 | 0.035 | 0.128 |
+| GGA@4 packed (re-fit every token) | 0.025 | 0.094 | 0.306 | 1.706 |
+| GGA@4 + PW-S8 packed | 0.045 | 0.142 | 0.395 | 1.672 |
+| GGA@4 emulated | 0.097 | 0.767 | 5.101 | 20.621 |
+| GGA@4 + PW-S8 emulated | 0.224 | 1.281 | 7.861 | 31.729 |
+
+GSM8K (1319 prompts, greedy, up to 1024 tokens, graphs, gpu_memory_utilization 0.45): pace4 169 s (1305 tok/s),
+GGA@4 224 s (1023 tok/s), GGA@4 + PW-S8 198 s (1120 tok/s). Max concurrency at 4232 tokens / request in a 6 GiB KV
+budget: pace4 42.67x, GGA@4 41.36x, GGA@4 + PW-S8 40.93x.
 
 ## Qwen3.5-4B
 
