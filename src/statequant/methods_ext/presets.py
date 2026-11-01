@@ -5,6 +5,7 @@ from ..methods import Uniform
 from ..schedule import Schedule, per_token
 from .bdr_lrb import BDR, LRB, AffineGrid
 from .damp_paper import DampPaper
+from .gga import GGA, PureWrite
 from .gramian import GramianAlloc
 from .leapquant import LeapQuant
 from .replay import ReplaySSM
@@ -76,6 +77,23 @@ def replayssm(mode: str = 'tp4_hi16_sr', L: int = 16):
     return ReplaySSM(mode, L)
 
 
+def gga(bits: int = 4, pw: bool = False, m: int = 8, prefill: str = 'end', pivots: int = 32):
+    """GGA@bits (arXiv 2610.39931): STEP's quantizers with a gradient-aware global allocation, 32 fp16 pivots,
+    every decoded token re-rounded; ``pw``: + PW-S``m`` (last m writes as FP8 vector pairs). Prefill: the base path,
+    'end' = full precision, rounded at the prompt end; 'token' = every prompt token. Needs ``statequant.calibrate``
+    (forward + backward; the paper: 32 x 2048 WikiText-2 train tokens)."""
+    q = GGA(bits, pivots=pivots)
+    sch = Schedule(prefill=1 << 30 if prefill == 'end' else 1, decode=1, buffer_bits=0, prompt_end=True)
+    q.schedule = sch
+    return PureWrite(q, m=m, prefill=prefill) if pw else q
+
+
+def pure_write(base, m: int = 8, prefill: str = 'end'):
+    """PW-S``m`` (arXiv 2610.39931) around a calibrated StepQuant / GGA plan, e.g. ``pure_write(sq.stepquant(4))``
+    (the paper's STEP+PW)."""
+    return PureWrite(base, m=m, prefill=prefill)
+
+
 EXT_PRESETS = {'int8k': int8k,
     'int4_g128': int4_g128, 'bdr_int4': bdr_int4,
     'lrb_bdr': lrb_bdr, 'lrb': lambda: lrb_bdr(bdr=False), 'lrb_bdr_fp32': lambda: lrb_bdr('gdn', records='fp32'),
@@ -84,9 +102,11 @@ EXT_PRESETS = {'int8k': int8k,
     'gramian4': lambda: gramian(4, 1), 'gramian4_c64': lambda: gramian(4, 64), 'gramian6': lambda: gramian(6, 1),
     'uniform4_blk32': lambda: gramian(4, 1, 'uniform'), 'uniform4_blk32_c64': lambda: gramian(4, 64, 'uniform'),
     'damp_paper_int8': damp_paper_int8, 'damp_paper_int4': damp_paper_int4,
+    'gga4': lambda: gga(4), 'gga4_pw': lambda: gga(4, pw=True), 'gga5': lambda: gga(5), 'gga6': lambda: gga(6),
+    'gga6_pw': lambda: gga(6, pw=True),
     **{f'replay_{m}': (lambda m=m: replayssm(m)) for m in ('s32_rs', 'f16_sr_rs', 'f8_sr_rs', 'f4_sr_rs', 'tp8_hi32',
                                                           'tp8_hi16_sr', 'tp4_hi32', 'tp4_hi16_sr', 'tp4_hi8_sr')},
 }
 
 __all__ = ['int4_g128', 'bdr_int4', 'lrb_bdr', 'leapquant', 'gramian', 'damp_paper_int8', 'damp_paper_int4',
-           'replayssm', 'EXT_PRESETS', 'Schedule']
+           'replayssm', 'gga', 'pure_write', 'EXT_PRESETS', 'Schedule']

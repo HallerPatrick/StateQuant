@@ -118,6 +118,7 @@ PRESETS = {'fp32': full_precision, 'rtn': rtn, 'pace4': pace4, 'pace48': pace48,
 
 # -- methods in statequant.methods_ext (BDR/LRB, LeapQuant, Gramian allocation, DAMP paper recipe) ----------------
 from .methods_ext.presets import (EXT_PRESETS, bdr_int4, damp_paper_int4, damp_paper_int8, gramian,  # noqa: E402
-                                  int4_g128, leapquant, lrb_bdr, replayssm)
+                                  gga, int4_g128, leapquant, lrb_bdr,
+                                  pure_write, replayssm)
 
 PRESETS.update(EXT_PRESETS)

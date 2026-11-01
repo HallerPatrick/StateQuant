@@ -5,7 +5,7 @@
 
 Recurrent-state quantization for linear-attention and SSM hybrid language models. statequant implements published
 state-quantization methods (PACE, DAMP, STEPQuant, Q-Mamba DSQ, LRB + BDR, LeapQuant, decay-weighted allocation,
-ReplaySSM, ...)
+ReplaySSM, GGA, ...)
 behind one interface and runs them on every recurrent-state family with open-weight LLMs: Gated DeltaNet, KDA,
 Mamba2 / SSD, MiniMax lightning and RWKV-6 / RWKV-7.
 
@@ -53,6 +53,7 @@ STATEQUANT_VLLM=pace4 vllm serve Qwen/Qwen3.5-4B --no-enable-prefix-caching
 | LRB + BDR (Low-Rank Bypass, Bounded Directional Rounding) | `lrb_bdr()`, `bdr_int4()` | Li et al., [arXiv 2610.15709](https://arxiv.org/abs/2610.15709) |
 | LeapQuant | `leapquant(8\|6\|4)` | Pan et al., [arXiv 2609.38166](https://arxiv.org/abs/2609.38166) |
 | Decay-weighted (Gramian) bit allocation | `gramian(bits)` | [arXiv 2609.30950](https://arxiv.org/abs/2609.30950) |
+| GGA, PW-S8 (gradient-aware allocation, pure-write window) | `gga(4, pw=True)`, `gga(6)` | Huang et al., [arXiv 2610.39931](https://arxiv.org/abs/2610.39931) |
 | ReplaySSM (checkpoint + read copy, replay ring) | `replayssm(mode, L)` | [arXiv 2610.13778](https://arxiv.org/abs/2610.13778); [code](https://github.com/Johnny-Liou/ReplaySSM) |
 | fp16 + stochastic rounding (Nemotron 3) | `nemotron()` | NVIDIA, [arXiv 2604.12374](https://arxiv.org/abs/2604.12374) |
 | Round to nearest (baseline) | `rtn(bits, axis, group)`, `int4_g128()` | |

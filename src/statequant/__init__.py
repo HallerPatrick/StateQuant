@@ -17,9 +17,9 @@ from .presets import (PRESETS, damp_int4, damp_int8, full_precision, nemotron, p
                       stepquant)
 from .step_quant import StepQuant
 from . import methods_ext  # noqa: F401  (BDR/LRB, LeapQuant, GramianAlloc, DampPaper)
-from .methods_ext import BDR, LRB, DampPaper, GramianAlloc, LeapQuant, ReplaySSM
+from .methods_ext import BDR, GGA, LRB, DampPaper, GramianAlloc, LeapQuant, PureWrite, ReplaySSM
 from .presets import (bdr_int4, damp_paper_int4, damp_paper_int8, gramian, int4_g128, leapquant, lrb_bdr,
-                      replayssm)
+                      replayssm, gga, pure_write)
 from .quantizer import FloatCast, Format, Identity, Quantizer, hadamard
 from .report import report
 from .schedule import Schedule, per_token, periodic

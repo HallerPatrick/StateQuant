@@ -245,6 +245,25 @@ class StepQuant(StateQuantizer):
         self.n_pivots = piv
         self.traces, self._dev = {}, {}
 
+    def save(self, path):
+        """The fitted plan (per layer: widths [H], impact factors [H, d_k]) and the settings, as one torch file."""
+        torch.save({'class': type(self).__name__, 'bits': self.bits, 'group': self.group, 'pivots': self.pivots,
+                    'candidates': self.candidates, 'plan': {k: (b.cpu(), w.cpu()) for k, (b, w) in self.plan.items()}},
+                   path)
+
+    @classmethod
+    def load(cls, path):
+        """A calibrated method from ``save`` (StepQuant or GGA)."""
+        d = torch.load(path, map_location='cpu')
+        if cls is StepQuant and d['class'] == 'GGA':
+            from .methods_ext.gga import GGA
+            cls = GGA
+        q = cls(d['bits'], pivots=d['pivots'], group=d['group'])
+        q.candidates = d['candidates']
+        q.plan = {k: (b, w) for k, (b, w) in d['plan'].items()}
+        q.masks = {k: b == 16 for k, (b, w) in q.plan.items()}
+        return q
+
     def _use_triton(self, S):
         if self.backend == 'torch' or not S.is_cuda:
             assert self.backend != 'triton' or S.is_cuda, 'the triton backend needs CUDA states'
@@ -267,11 +286,13 @@ class StepQuant(StateQuantizer):
         return fit_triton(S, b, wd, self.group, two).to(S.dtype)
 
     def bits_per_value(self, d_k, d_v):
-        """Stored bits per value: assigned widths (fp16 for pivots) + one fp16 row and column vector per head (+ the
-        per-group row factors of 2-bit heads)."""
+        """Stored bits per value: assigned widths (fp16 for pivots) + one fp16 row and column vector per head; 2-bit
+        heads store their group-32 row factors instead of the row vector (arXiv 2610.39931's Table 3 accounting:
+        STEP@4 on Qwen3.5-4B 4.758)."""
         if not self.plan:
             return self.bits + 16 * (d_k + d_v) / (d_k * d_v)
         b = torch.cat([p[0] for p in self.plan.values()]).float()
         side = torch.where(b == 16, 0., 16 * (d_k + d_v) / (d_k * d_v))
-        side = side + torch.where(b == 2, 16 * d_k * (d_v // self.group) / (d_k * d_v), 0.)   # 2-bit group rows
+        # 2-bit heads store one row factor per (key row, 32 value columns) in place of the per-row one
+        side = side + torch.where(b == 2, 16 * d_k * (d_v // self.group - 1) / (d_k * d_v), 0.)
         return (b + side).mean().item()

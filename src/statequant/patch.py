@@ -351,6 +351,8 @@ def calibrate(model, method: StateQuantizer, input_ids: torch.Tensor, period: in
     (else 256)."""
     if not method.needs_calibration:
         return method
+    if hasattr(method, 'calibrate_model'):                # methods that need more than state snapshots (GGA: gradients)
+        return method.calibrate_model(model, input_ids, batch_size)
     period = period or getattr(method, 'calibration_period', 256)
     sch = Schedule(prefill=period, decode=period, buffer_bits=0)
 

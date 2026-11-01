@@ -20,6 +20,7 @@ per sequence.
 | `lrb_bdr(...)` | Low-Rank Bypass + BDR | [arXiv 2610.15709](https://arxiv.org/abs/2610.15709) |
 | `leapquant(bits=8\|6\|4)` | per-window quantization + compensator tokens + smoothing | LeapQuant, [arXiv 2609.38166](https://arxiv.org/abs/2609.38166) |
 | `gramian(bits, C, allocation)` | calibration-free decay-weighted per-head / per-row widths | [arXiv 2609.30950](https://arxiv.org/abs/2609.30950) |
+| `gga(4\|5\|6, pw=False\|True)` | GGA: STEP's quantizers with a per-head allocation weighted by the LM-loss writeback adjoint (32 fp16 pivots, global DP); `pw`: + PW-S8, the last 8 writes as FP8 vector pairs merged on eviction; `pure_write(base)` for STEP+PW | [arXiv 2610.39931](https://arxiv.org/abs/2610.39931) |
 | `replayssm(mode, L)` | recurrence checkpoint (FP32/FP16/FP8/NVFP4, SR) + read copy (FP8/NVFP4, RTN) cast at every flush, L-token replay ring, full-precision prefill | ReplaySSM, [arXiv 2610.13778](https://arxiv.org/abs/2610.13778), [code](https://github.com/Johnny-Liou/ReplaySSM) |
 
 Per-model quality and bits per value: [results](results.md).
@@ -65,6 +66,7 @@ sched = sq.Schedule(prefill=256, decode=8, buffer_bits=8)      # round every 256
 | `leapquant(bits=8\|6\|4, records=...)` | LeapQuant per-window + compensator tokens + smoothing (2609.38166) | 9.5 / 7.5 / 6.5 (+ 4.0 window buffer) |
 | `gramian(bits, C=1\|64, allocation='gramian'\|'uniform')` | calibration-free decay-weighted per-head widths (2609.30950) | b + 0.5 + widths |
 | `damp_paper_int8()`, `damp_paper_int4()` | DAMP's own recipe: fp16 key channels, INT8 sym / INT4 asym g32 fp32 scales, calibrated value scaling + reordering (2608.27513 v2) | 9.875 / 7.25 |
+| `gga(bits, pw)`, `pure_write(base, m=8)` | GGA (2610.39931): calibrated with a forward + backward per sequence (`statequant.calibrate`, 32 x 2048 WikiText-2 train in the paper); PW-S8 as Algorithm 1 (old state re-rounded every decoded token, FP8 E4M3 (p, v) queue with FP32 per-vector scales, pivots fp16 without queue); save / load the plan with `q.save(path)` / `sq.StepQuant.load(path)` | Table 3: GGA@4 4.753, @4+PW 5.784, @5 5.678, @6 6.573, @6+PW 7.604 (Qwen3.5-4B); tests/test_gga.py |
 | `replayssm(mode='tp4_hi16_sr'\|'f4_sr_rs'\|..., L=16)` | ReplaySSM (2610.13778): the paper's nine modes (`replay.MODES`, presets `replay_<mode>`); flush every L decode tokens re-solves the window from the checkpoint and the raw ring; checked against the paper's emulation kernels (`tests/test_vs_replayssm.py`) | checkpoint + read copy: 20.5 (`tp4_hi16_sr`), 4.5 (`f4_sr_rs`); + ring 5.06 at L = 16 (2 value heads per key head) |
 
 These methods are *stateful*: they set `stateful = True` and `statequant.apply` calls `method.piece(S, layer, piece)`
