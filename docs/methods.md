@@ -22,8 +22,6 @@ per sequence.
 | `gga(4\|5\|6, pw=False\|True)` | GGA: STEP's quantizers with a per-head allocation weighted by the LM-loss writeback adjoint (32 fp16 pivots, global DP); `pw`: + PW-S8, the last 8 writes as FP8 vector pairs merged on eviction; `pure_write(base)` for STEP+PW | [arXiv 2610.39931](https://arxiv.org/abs/2610.39931) |
 | `replayssm(mode, L)` | recurrence checkpoint (FP32/FP16/FP8/NVFP4, SR) + read copy (FP8/NVFP4, RTN) cast at every flush, L-token replay ring, full-precision prefill | ReplaySSM, [arXiv 2610.13778](https://arxiv.org/abs/2610.13778), [code](https://github.com/Johnny-Liou/ReplaySSM) |
 
-Per-model quality and bits per value: [results](results.md).
-
 ## Usage
 
 ```python

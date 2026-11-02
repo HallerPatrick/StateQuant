@@ -105,7 +105,7 @@ models built on it, so other callers get vLLM's stock answer. A value-axis group
 halved until it does (int4v g32 becomes g16 on head_dim 80). Restrictions (asserted): TP = 1, no speculative
 decoding, no prefix caching, no ReplaySSM. E2E check: `tests/vllm_mamba2_check.py`.
 
-**End-to-end in vLLM 0.32.** Model: NVIDIA-Nemotron-3-Nano-4B-BF16, a hybrid with 96 heads x head_dim 80 x d_state 128 and 8 groups. The run used a shared L40 with m = 8, an int8 buffer and 32 WikiText-103 windows; concurrency is for 4232-token requests at a fixed 6 GiB KV budget (`tests/vllm_mamba2_check.py`, summary in docs/figures/data/vllm_e2e.csv).
+**End-to-end in vLLM 0.32.** Model: NVIDIA-Nemotron-3-Nano-4B-BF16, a hybrid with 96 heads x head_dim 80 x d_state 128 and 8 groups. The run used a shared L40 with m = 8, an int8 buffer and 32 WikiText-103 windows; concurrency is for 4232-token requests at a fixed 6 GiB KV budget (`tests/vllm_mamba2_check.py`).
 - `stock` keeps vLLM's default fp32 ssm state for NemotronH.
 - Greedy agreement is a noisy measure on this model: stock fp32 and stock bf16 agree on only 0.82 of tokens.
 
@@ -176,7 +176,7 @@ switches above 128 rows x heads).
 **End-to-end in vLLM 0.32.** Model: Ling-3.0-tiny on a shared A100, m = 8, int8 buffer, 16 WikiText-103 windows
 (prefill loss over 640 tokens; teacher-forced decode of the last 128 tokens after a 512-token prompt). Greedy runs
 8 prompts x 64 tokens; the mixed batch is 48 requests with chunked prefill. Concurrency is for 4232-token requests at
-a fixed 6 GiB KV budget. Results are in docs/figures/data/vllm_e2e.csv.
+a fixed 6 GiB KV budget.
 - vLLM 0.32 always keeps Ling's KDA state in fp32: `mamba_ssm_cache_dtype='bfloat16'` is not passed to
   `kda_state_dtype` by `bailing_moe_v3`. The "stock (2nd run)" row is therefore a second fp32 run and shows the
   run-to-run noise.

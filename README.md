@@ -57,8 +57,7 @@ STATEQUANT_VLLM=pace4 vllm serve Qwen/Qwen3.5-4B --no-enable-prefix-caching
 | GGA, PW-S8 (gradient-aware allocation, pure-write window) | `gga(4, pw=True)`, `gga(6)` | Huang et al., [arXiv 2610.39931](https://arxiv.org/abs/2610.39931) |
 | Round to nearest (baseline) | `rtn(bits, axis, group)`, `int4_g128()` | |
 
-Formats, schedules and how to compose your own: [docs/methods.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/methods.md). Per-model quality of every
-method: [docs/results.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/results.md).
+Formats, schedules and how to compose your own: [docs/methods.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/methods.md).
 
 ## Supported models
 
@@ -87,9 +86,6 @@ Per GDN layer per decode step on an A100 80GB, CUDA graph, int8 decode buffer of
 The recurrent state as the vLLM plugin stores it (`STATEQUANT_VLLM=int8k|int4v|pace4|gga:<plan>[:pw]`), decode buffer
 included. GGA's slot is its largest layer, because vLLM gives every layer the same slot.
 
-Numbers: [docs/figures/data](https://github.com/HallerPatrick/StateQuant/tree/main/docs/figures/data).
-Quality of every method per model: [docs/results.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/results.md).
-
 ## Documentation
 
 - [Methods](https://github.com/HallerPatrick/StateQuant/blob/main/docs/methods.md): presets, formats, schedules,
@@ -100,7 +96,6 @@ Quality of every method per model: [docs/results.md](https://github.com/HallerPa
   step, tests, latency
 - [vLLM plugin](https://github.com/HallerPatrick/StateQuant/blob/main/docs/vllm.md): configuration, restrictions,
   end-to-end checks
-- [Results](https://github.com/HallerPatrick/StateQuant/blob/main/docs/results.md): every preset per model
 
 ## Citation
 

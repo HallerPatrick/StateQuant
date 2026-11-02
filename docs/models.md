@@ -1,6 +1,6 @@
 # Supported models
 
-Every recurrent-state family with open-weight LLMs runs on the fake-quant reference path (transformers / fla). Packed kernels and the vLLM plugin cover Gated DeltaNet, Mamba2 / SSD and KDA. Results per model: [results](results.md); vLLM details: [vllm](vllm.md).
+Every recurrent-state family with open-weight LLMs runs on the fake-quant reference path (transformers / fla). Packed kernels and the vLLM plugin cover Gated DeltaNet, Mamba2 / SSD and KDA. vLLM details: [vllm](vllm.md).
 
 ## Support matrix
 
@@ -20,7 +20,7 @@ schedule's positions and each prompt piece starts from the previous rounded stat
 that runs the unpatched model token by token and rounds the cached state in place (bit for bit); one prompt call, two
 prompt calls and prompt + decoding round at identical positions; `calibrate` + HeadMix / ChannelProtect / StepQuant
 end to end; `report`. Real checkpoints, if cached (`tests/test_e2e_families.py`): Mamba2-130m (CPU/GPU), RWKV-7 0.1B
-(GPU), Qwen3.5-0.8B (`tests/test_packed_backend.py`); every preset on OLMo-Hybrid-7B in [results](results.md).
+(GPU), Qwen3.5-0.8B (`tests/test_packed_backend.py`).
 
 Methods x families: `Uniform`, `DSQ`, `HeadMix`, `ChannelProtect` run on every family (decay-based scores use the
 head's mean decay over key channels for KDA / RWKV; ChannelProtect's persistence P_u is per channel there). `StepQuant`
