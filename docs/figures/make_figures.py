@@ -135,23 +135,85 @@ def fig_vllm():
     plt.close(fig)
 
 
+# -- README results figures: own, lighter theme ------------------------------------------------------------------
+CLEAN = {
+    'figure.facecolor': 'white', 'axes.facecolor': 'white', 'savefig.facecolor': 'white', 'font.size': 10,
+    'axes.spines.left': False, 'axes.spines.top': False, 'axes.spines.right': False, 'axes.edgecolor': '#c9c8c3',
+    'axes.grid': True, 'grid.color': '#ecebe7', 'grid.linewidth': 0.8, 'xtick.color': INK2, 'ytick.color': INK2,
+    'axes.labelcolor': INK2, 'xtick.major.size': 0, 'ytick.major.size': 0, 'ytick.minor.size': 0,
+    'axes.titlesize': 12, 'axes.titleweight': 'bold', 'axes.titlecolor': INK, 'axes.titlepad': 22,
+}
+STOCK = '#9b9a95'
+VIOLET = '#8457d6'
+
+
+def _heading(ax, title, sub):
+    ax.set_title(title, loc='left')
+    ax.text(0, 1.02, sub, transform=ax.transAxes, fontsize=9, color=MUTED, va='bottom')
+
+
 def fig_latency():
-    rows = {int(r['batch']): r for r in read('decode_latency_a100.csv')}
-    batches = [1, 8, 64, 512]
-    series = [('fla bf16 in place', 'vLLM / fla bf16 (stock)'), ('bf16 buf8 fused', 'bf16 + int8 buffer'),
-              ('int4 k g64 fused', 'int4 k g64 (PACE-4)'), ('int8 k g32 fused', 'int8 k g32')]
-    fig, ax = plt.subplots(figsize=(7, 3.8))
-    grouped(ax, batches, [n for _, n in series], lambda b, n: float(rows[b][dict((v, k) for k, v in series)[n]]),
-            [MUTED, BLUE, ORANGE, AQUA])
-    ax.set_yscale('log')
-    ax.set_xticklabels([f'batch {b}' for b in batches])
-    ax.set_ylabel('µs per GDN layer per decode step')
-    ax.set_title('Decode step per GDN layer (Qwen3.5-4B shapes, A100, m = 8; lower is better)', loc='left')
-    ax.legend(loc='upper left', frameon=False, fontsize=8)
-    fig.tight_layout()
-    fig.savefig(os.path.join(HERE, 'decode_latency.png'), dpi=160)
-    plt.close(fig)
+    rows = read('decode_latency_a100.csv')
+    batches = [int(r['batch']) for r in rows]
+    series = [('fla fp32 in place', 'stock fp32', STOCK, (0, (4, 2))), ('fla bf16 in place', 'stock bf16', STOCK, '-'),
+              ('int4 v g32 fused', 'int4 v g32', ORANGE, '-'), ('int4 k g64 fused', 'PACE-4', BLUE, '-')]
+    with plt.rc_context(CLEAN):
+        fig, ax = plt.subplots(figsize=(7.2, 4.6))
+        ends = []
+        for col, name, c, ls in series:
+            ys = [float(r[col]) for r in rows]
+            ax.plot(batches, ys, color=c, lw=2.4 if c != STOCK else 1.8, ls=ls, marker='o', ms=4.5, zorder=3,
+                    markeredgecolor='white', markeredgewidth=1)
+            ends.append([ys[-1], name, c])
+        ends.sort(reverse=True)                                        # end labels, spread apart on the log axis
+        for i in range(1, len(ends)):
+            ends[i][0] = min(ends[i][0], ends[i - 1][0] / 1.3)
+        for yl, name, c in ends:
+            ax.annotate(name, (batches[-1] * 1.12, yl), va='center', fontsize=9, annotation_clip=False,
+                        color=c if c != STOCK else INK2, fontweight='bold' if c != STOCK else 'normal')
+        ax.set_xscale('log', base=2)
+        ax.set_yscale('log')
+        ax.set_xticks(batches)
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:g}'))
+        ax.xaxis.set_minor_formatter(NullFormatter())
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{y:g}'))
+        ax.grid(axis='x', visible=False)
+        ax.spines['bottom'].set_visible(True)
+        ax.set_xlim(batches[0] / 1.3, batches[-1] * 2.6)
+        ax.set_xlabel('batch size')
+        ax.set_ylabel('µs per GDN layer per step')
+        _heading(ax, 'Decode step latency', 'Qwen3.5-4B shapes, A100 80GB, CUDA graph, lower is better')
+        fig.tight_layout()
+        fig.savefig(os.path.join(HERE, 'decode_latency.png'), dpi=180)
+        plt.close(fig)
+
+
+def fig_memory():
+    rows = read('state_memory_qwen35_4b.csv')
+    names = [r['state'] for r in rows]
+    mib = [int(r['bytes_per_layer']) * int(r['gdn_layers']) / 2 ** 20 for r in rows]
+    ref = mib[0]
+    hue = {'int8 k g32': AQUA, 'GGA': VIOLET, 'int4 v g32': ORANGE, 'PACE-4': BLUE}   # as in the latency plot
+    colors = [STOCK if n.startswith('stock') else next(c for k, c in hue.items() if n.startswith(k)) for n in names]
+    with plt.rc_context(CLEAN):
+        fig, ax = plt.subplots(figsize=(7.2, 3.6))
+        y = range(len(rows))
+        ax.barh(y, mib, height=0.58, color=colors, zorder=2)
+        for i, v in enumerate(mib):
+            ax.annotate(f'{v:.1f} MiB' + (f'  ({ref / v:.1f}x smaller)' if i else ''), (v, i), xytext=(6, 0),
+                        textcoords='offset points', va='center', fontsize=9, color=INK2)
+        ax.set_yticks(list(y))
+        ax.set_yticklabels(names)
+        ax.invert_yaxis()
+        ax.set_xlim(0, ref * 1.25)
+        ax.grid(visible=False)
+        ax.set_xticks([])
+        ax.spines['bottom'].set_visible(False)
+        _heading(ax, 'Recurrent state memory per sequence', 'Qwen3.5-4B in vLLM (24 GDN layers), decode buffer included, lower is better')
+        fig.tight_layout()
+        fig.savefig(os.path.join(HERE, 'state_memory.png'), dpi=180)
+        plt.close(fig)
 
 
 if __name__ == '__main__':
-    fig_presets(), fig_vllm(), fig_latency()
+    fig_presets(), fig_vllm(), fig_latency(), fig_memory()

@@ -1,0 +1,8 @@
+state,statequant_vllm,bytes_per_layer,gdn_layers
+stock vLLM fp32,,2097152,24
+stock vLLM bf16,,1048576,24
+int8 k g32,int8k,608256,24
+GGA@4 + PW-S8,gga:<plan>:pw,543760,24
+GGA@4,gga:<plan>,476176,24
+int4 v g32,int4v,346112,24
+PACE-4,pace4,329728,24
