@@ -75,15 +75,32 @@ Details per family, method coverage and model-specific notes:
 
 ## Results
 
-vLLM 0.32 end to end, packed state vs stock:
+Qwen3.5-4B shapes (24 GDN layers; 32 value / 16 key heads, d_k = d_v = 128).
 
-![vLLM concurrency and decode loss](https://raw.githubusercontent.com/HallerPatrick/StateQuant/main/docs/figures/vllm_e2e.png)
+**Decode step**, us per layer per step, A100 80GB, CUDA graph, int8 decode buffer of 8 tokens
+(`benchmarks/decode_state.py --slots`):
 
-Decode-step latency of the packed kernels:
+| batch | stock bf16 (fla) | stock fp32 (fla) | int8 k g32 | PACE-4 | int4 v g32 |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 5.7 | 4.7 | 7.0 | 7.2 | 10.8 |
+| 8 | 22.1 | 18.7 | 13.8 | 14.0 | 22.4 |
+| 64 | 132.2 | 181.0 | 80.5 | 67.9 | 111.4 |
+| 512 | 1094.7 | 1404.3 | 591.5 | 585.6 | 888.3 |
 
-![decode step latency](https://raw.githubusercontent.com/HallerPatrick/StateQuant/main/docs/figures/decode_latency.png)
+**State memory** per sequence, as the vLLM plugin stores it (`STATEQUANT_VLLM=...`; packed slots include the decode
+buffer; GGA's slot is its largest layer, since vLLM gives every layer the same slot):
 
-Full tables and setups: [docs/results.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/results.md).
+| state | `STATEQUANT_VLLM` | bytes per layer | MiB per sequence | vs fp32 |
+|---|---|---:|---:|---:|
+| stock vLLM, fp32 state | unset | 2,097,152 | 48.0 | 1.0x |
+| stock vLLM, bf16 state | unset, `mamba_ssm_cache_dtype="bfloat16"` | 1,048,576 | 24.0 | 2.0x |
+| int8 k g32 | `int8k` | 608,256 | 13.9 | 3.4x |
+| PACE-4 | `pace4` | 329,728 | 7.5 | 6.4x |
+| int4 v g32 | `int4v` | 346,112 | 7.9 | 6.1x |
+| GGA@4 | `gga:<plan>` | 476,176 | 10.9 | 4.4x |
+| GGA@4 + PW-S8 | `gga:<plan>:pw` | 543,760 | 12.4 | 3.9x |
+
+Quality of every method per model: [docs/results.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/results.md).
 
 ## Documentation
 
