@@ -45,16 +45,16 @@ STATEQUANT_VLLM=pace4 vllm serve Qwen/Qwen3.5-4B --no-enable-prefix-caching
 
 | method | preset | reference |
 |---|---|---|
-| PACE-4, PACE-4/8 | `pace4()`, `pace48()` | Haller et al., [arXiv 2610.29545](https://arxiv.org/abs/2610.29545) |
-| DAMP | `damp_paper_int8()`, `damp_paper_int4()` | Zhang et al., [arXiv 2608.27513](https://arxiv.org/abs/2608.27513) |
-| STEPQuant | `stepquant(4)`, `stepquant(6)` | Yao et al., [arXiv 2609.38169](https://arxiv.org/abs/2609.38169); [code](https://github.com/Dreamer-Toby/STEPQuant) |
 | Q-Mamba DSQ | `qmamba_dsq()` | Chen et al., [Findings of ACL 2025](https://aclanthology.org/2025.findings-acl.551) |
-| LRB + BDR (Low-Rank Bypass, Bounded Directional Rounding) | `lrb_bdr()`, `bdr_int4()` | Li et al., [arXiv 2610.15709](https://arxiv.org/abs/2610.15709) |
-| LeapQuant | `leapquant(8\|6\|4)` | Pan et al., [arXiv 2609.38166](https://arxiv.org/abs/2609.38166) |
-| Decay-weighted (Gramian) bit allocation | `gramian(bits)` | [arXiv 2609.30950](https://arxiv.org/abs/2609.30950) |
-| GGA, PW-S8 (gradient-aware allocation, pure-write window) | `gga(4, pw=True)`, `gga(6)` | Huang et al., [arXiv 2610.39931](https://arxiv.org/abs/2610.39931) |
-| ReplaySSM (checkpoint + read copy, replay ring) | `replayssm(mode, L)` | [arXiv 2610.13778](https://arxiv.org/abs/2610.13778); [code](https://github.com/Johnny-Liou/ReplaySSM) |
 | fp16 + stochastic rounding (Nemotron 3) | `nemotron()` | NVIDIA, [arXiv 2604.12374](https://arxiv.org/abs/2604.12374) |
+| DAMP | `damp_paper_int8()`, `damp_paper_int4()` | Zhang et al., [arXiv 2608.27513](https://arxiv.org/abs/2608.27513) |
+| Decay-weighted (Gramian) bit allocation | `gramian(bits)` | [arXiv 2609.30950](https://arxiv.org/abs/2609.30950) |
+| LeapQuant | `leapquant(8\|6\|4)` | Pan et al., [arXiv 2609.38166](https://arxiv.org/abs/2609.38166) |
+| STEPQuant | `stepquant(4)`, `stepquant(6)` | Yao et al., [arXiv 2609.38169](https://arxiv.org/abs/2609.38169); [code](https://github.com/Dreamer-Toby/STEPQuant) |
+| ReplaySSM (checkpoint + read copy, replay ring) | `replayssm(mode, L)` | [arXiv 2610.13778](https://arxiv.org/abs/2610.13778); [code](https://github.com/Johnny-Liou/ReplaySSM) |
+| LRB + BDR (Low-Rank Bypass, Bounded Directional Rounding) | `lrb_bdr()`, `bdr_int4()` | Li et al., [arXiv 2610.15709](https://arxiv.org/abs/2610.15709) |
+| PACE-4, PACE-4/8 | `pace4()`, `pace48()` | Haller et al., [arXiv 2610.29545](https://arxiv.org/abs/2610.29545) |
+| GGA, PW-S8 (gradient-aware allocation, pure-write window) | `gga(4, pw=True)`, `gga(6)` | Huang et al., [arXiv 2610.39931](https://arxiv.org/abs/2610.39931) |
 | Round to nearest (baseline) | `rtn(bits, axis, group)`, `int4_g128()` | |
 
 Formats, schedules and how to compose your own: [docs/methods.md](https://github.com/HallerPatrick/StateQuant/blob/main/docs/methods.md). Per-model quality of every
