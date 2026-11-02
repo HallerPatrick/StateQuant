@@ -58,9 +58,8 @@ packed kernels (padded key tiles, ragged key groups; see the packed decode path 
 (`integrations/vllm_olmo.py`).
 
 Head-dim effects on the formats: PACE-4's key groups of 64 are ragged on 96 (4.33 instead of 4.25 b/value); DAMP keeps
-16 / 32 protected key channels, i.e. 1/6 / 1/3 of d_k (`damp_int8` / `damp_int4` 9.96 / 6.00 b/value vs 9.66 /
-5.66 on Qwen's 128; `damp_paper_int8` 10.17 vs 9.875); the INT4 g128 grid of `int4_g128` / `bdr_int4` / LRB uses one
-group per value column (96 < 128: 4.67 b/value); Hadamard rotations (PACE-4/8's int8 heads, DAMP) are block diagonal (32 on d_k, 64 on d_v); PACE-4/8
+16 protected key channels, i.e. 1/6 of d_k (`damp_paper_int8` 10.17 vs 9.875 b/value on Qwen's 128); the INT4 g128 grid of `int4_g128` / `bdr_int4` / LRB uses one
+group per value column (96 < 128: 4.67 b/value); Hadamard rotations (PACE-4/8's int8 heads) are block diagonal (32 on d_k, 64 on d_v); PACE-4/8
 puts 8 of 30 heads per layer at int8 (frac 0.25 rounds up); STEPQuant scales its 32 fp16 pivots of 2,304 heads to 10
 of 720. LeapQuant and DAMP's paper recipe keep the prompt in full precision, so their prompt delta is zero by
 construction.

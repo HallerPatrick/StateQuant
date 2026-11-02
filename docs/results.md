@@ -20,7 +20,6 @@ Loss deltas are against the unquantized model on the same windows (nats / token)
 |---|---:|---:|---:|---:|---:|
 | `pace4` | -0.0015 | +0.0457 | 4.250 | 5.281 | 5.281 |
 | `stepquant4` | +0.1953 | +0.2107 | 4.613 | 4.613 | 4.613 |
-| `damp_int8` | +0.0003 | +0.0036 | 9.656 | 9.656 | 9.656 |
 | `damp_paper_int8` | +0.0000 | -0.0042 | 9.875 | 9.875 | 9.875 |
 | `damp_paper_int4` | +0.0000 | +0.1355 | 7.250 | 7.250 | 7.250 |
 | `int4_g128` | +2.1353 | +3.5579 | 4.500 | 4.500 | 4.500 |
@@ -66,8 +65,6 @@ rounding (e.g. the negative decode deltas).
 | `pace4` | -0.0006 | +0.0045 | 4.333 | 5.361 | 5.361 |
 | `int8k` | +0.0002 | -0.0002 | 8.500 | 9.528 | 9.528 |
 | `pace48` | +0.0025 | +0.0069 | 5.725 | 7.246 | 7.246 |
-| `damp_int8` | -0.0003 | +0.0014 | 9.958 | 9.958 | 9.958 |
-| `damp_int4` | -0.0003 | -0.0005 | 6.000 | 7.028 | 7.028 |
 | `qmamba_dsq` | +0.0006 | +0.0111 | 4.250 | 5.278 | 5.278 |
 | `rtn` | +0.0607 | +0.0860 | 4.500 | 4.500 | 4.500 |
 | `nemotron` | -0.0001 | -0.0000 | 16.000 | 16.000 | 16.000 |
@@ -99,8 +96,6 @@ the decode buffer), peak. `examples/presets_loss.py --repo inclusionAI/Ling-3.0-
 | `rtn` | +0.2825 | +0.4245 | 4.500 | 4.500 | 4.500 |
 | `nemotron` | +0.0107 | +0.0011 | 16.000 | 16.000 | 16.000 |
 | `qmamba_dsq` | -0.0041 | -0.0178 | 4.250 | 5.281 | 5.281 |
-| `damp_int8` | +0.0000 | -0.0032 | 9.656 | 9.656 | 9.656 |
-| `damp_int4` | +0.0046 | +0.0049 | 5.656 | 6.688 | 6.688 |
 | `pace4` | +0.0109 | +0.0349 | 4.250 | 5.281 | 5.281 |
 | `pace48` | +0.0748 | +0.1274 | 5.656 | 6.930 | 6.930 |
 | `int8k` | +0.0016 | -0.0040 | 8.500 | 9.531 | 9.531 |
@@ -120,7 +115,7 @@ Notes on the table:
   `--calib-seq 2048`. That run's eval windows start after the calibration tokens and are different windows: its
   unquantized reference is prompt 2.6710 / decode 2.3309.
 - A Δ prompt of exactly 0 is by construction: LeapQuant rounds decode tokens and the prompt end only, and DampPaper
-  keeps fp32 inside each prefill chunk (8192 tokens). DAMP INT8's +0.0000 is +2.4e-5.
+  keeps fp32 inside each prefill chunk (8192 tokens).
 - Several rows are below the unquantized model: `qmamba_dsq`, `int8k` decode, `stepquant4/6`, DampPaper decode.
   - That is a property of these windows (4 x 1024 prompt tokens, 4 x 256 decode tokens), not a measurement of
     improvement.

@@ -28,7 +28,7 @@ pip install "statequant[vllm]"      # + vLLM, for the serving plugin
 ```python
 import statequant as sq
 
-q = sq.pace4()                           # or sq.pace48(), sq.damp_int8(), sq.lrb_bdr(), sq.leapquant(8), ...
+q = sq.pace4()                           # or sq.pace48(), sq.damp_paper_int8(), sq.lrb_bdr(), sq.leapquant(8), ...
 sq.calibrate(model, q, calib_ids)        # only for methods with a fitted allocation
 with sq.apply(model, q):                 # the method's published rounding schedule
     out = model.generate(ids, max_new_tokens=256)
@@ -46,8 +46,7 @@ STATEQUANT_VLLM=pace4 vllm serve Qwen/Qwen3.5-4B --no-enable-prefix-caching
 | method | preset | reference |
 |---|---|---|
 | PACE-4, PACE-4/8 | `pace4()`, `pace48()` | Haller et al., [arXiv 2610.29545](https://arxiv.org/abs/2610.29545) |
-| DAMP (paper recipe) | `damp_paper_int8()`, `damp_paper_int4()` | Zhang et al., [arXiv 2608.27513](https://arxiv.org/abs/2608.27513) |
-| DAMP (PACE evaluation variant) | `damp_int8()`, `damp_int4()` | as configured in [PACE](https://arxiv.org/abs/2610.29545) |
+| DAMP | `damp_paper_int8()`, `damp_paper_int4()` | Zhang et al., [arXiv 2608.27513](https://arxiv.org/abs/2608.27513) |
 | STEPQuant | `stepquant(4)`, `stepquant(6)` | Yao et al., [arXiv 2609.38169](https://arxiv.org/abs/2609.38169); [code](https://github.com/Dreamer-Toby/STEPQuant) |
 | Q-Mamba DSQ | `qmamba_dsq()` | Chen et al., [Findings of ACL 2025](https://aclanthology.org/2025.findings-acl.551) |
 | LRB + BDR (Low-Rank Bypass, Bounded Directional Rounding) | `lrb_bdr()`, `bdr_int4()` | Li et al., [arXiv 2610.15709](https://arxiv.org/abs/2610.15709) |

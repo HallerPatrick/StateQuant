@@ -90,7 +90,8 @@ def _feed(cal_ref, ours, n=6):
 
 def test_damp_scores_and_masks():
     cal = damp.DampCalibrator(8)                     # default: zp fp, value axis, no rotation
-    q = sq.damp_int8()
+    q = sq.ChannelProtect(sq.Quantizer(8, 'v', 32, affine=True, zero_point='int', rotation='hadamard'),
+                          sq.FloatCast('fp16'), k=16, cal_format=sq.Quantizer(8, 'v', 32, affine=True, zero_point='fp'))
     _feed(cal, q)
     for layer in range(2):
         ref = damp.protect_mask(cal.scores(layer, 128), 16, 'per_head')
@@ -114,5 +115,4 @@ def test_bits_accounting():
     assert sq.Quantizer(4, 'k', 32, affine=True).bits_per_value(128, 128) == 4.625          # paper: 4.625 / 8.75
     assert sq.Quantizer(8, 'k', 32, affine=True).bits_per_value(128, 128) == 8.75
     m = sq.pace48()
-    assert m.bits_per_value(128, 128) == 0.25 * 8.75 + 0.75 * 4.625                       # 5.656, = DAMP INT4
-    assert abs(sq.damp_int4().bits_per_value(128, 128) - 5.65625) < 1e-9
+    assert m.bits_per_value(128, 128) == 0.25 * 8.75 + 0.75 * 4.625                       # 5.656

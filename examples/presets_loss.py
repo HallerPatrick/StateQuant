@@ -50,7 +50,7 @@ def main():
     p.add_argument('--decode-windows', type=int, default=0, help='windows for the decode loss (0: skip)')
     p.add_argument('--prompt', type=int, default=512)
     p.add_argument('--decode', type=int, default=512)
-    p.add_argument('--presets', default='none,fp32,rtn,nemotron,qmamba_dsq,damp_int8,damp_int4,pace4,pace48')
+    p.add_argument('--presets', default='none,fp32,rtn,nemotron,qmamba_dsq,damp_paper_int8,damp_paper_int4,pace4,pace48')
     p.add_argument('--json', default=None, help='append one JSON line per preset to this file')
     a = p.parse_args()
     from datasets import load_dataset

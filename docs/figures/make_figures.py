@@ -22,15 +22,15 @@ MODELS = ['Qwen3.5-0.8B', 'Nemotron-3-Nano-4B', 'Olmo-Hybrid-7B', 'Ling-3.0-tiny
 FAMILY = {'Qwen3.5-0.8B': 'GDN', 'Qwen3.5-4B': 'GDN', 'Nemotron-3-Nano-4B': 'Mamba2', 'Olmo-Hybrid-7B': 'GDN',
           'Ling-3.0-tiny': 'KDA'}
 LABEL = {
-    'damp_paper_int8': 'DAMP (paper) INT8', 'damp_int8': 'DAMP INT8', 'leapquant8': 'LeapQuant-8', 'int8k': 'int8 k g32',
-    'leapquant6': 'LeapQuant-6', 'damp_paper_int4': 'DAMP (paper) INT4', 'leapquant4': 'LeapQuant-4',
-    'pace48': 'PACE-4/8', 'damp_int4': 'DAMP INT4', 'lrb_bdr': 'LRB + BDR', 'gramian6': 'Gramian-6',
+    'damp_paper_int8': 'DAMP INT8', 'leapquant8': 'LeapQuant-8', 'int8k': 'int8 k g32',
+    'leapquant6': 'LeapQuant-6', 'damp_paper_int4': 'DAMP INT4', 'leapquant4': 'LeapQuant-4',
+    'pace48': 'PACE-4/8', 'lrb_bdr': 'LRB + BDR', 'gramian6': 'Gramian-6',
     'stepquant6': 'STEPQuant-6', 'nemotron': 'fp16 + SR (Nemotron)', 'pace4': 'PACE-4', 'qmamba_dsq': 'Q-Mamba DSQ',
     'stepquant4': 'STEPQuant-4', 'gramian4_c64': 'Gramian-4, C=64', 'gramian4': 'Gramian-4, C=1',
     'bdr_int4': 'BDR int4', 'int4_g128': 'int4 g128, every token', 'rtn': 'RTN int4, every token',
 }
-ORDER = ['nemotron', 'damp_paper_int8', 'damp_int8', 'int8k', 'leapquant8', 'leapquant6', 'damp_paper_int4',
-         'leapquant4', 'pace48', 'damp_int4', 'lrb_bdr', 'gramian6', 'stepquant6', 'pace4', 'qmamba_dsq',
+ORDER = ['nemotron', 'damp_paper_int8', 'int8k', 'leapquant8', 'leapquant6', 'damp_paper_int4',
+         'leapquant4', 'pace48', 'lrb_bdr', 'gramian6', 'stepquant6', 'pace4', 'qmamba_dsq',
          'stepquant4', 'gramian4_c64', 'gramian4', 'bdr_int4', 'int4_g128', 'rtn']
 LINTHRESH, NOISE = 0.01, 0.005
 

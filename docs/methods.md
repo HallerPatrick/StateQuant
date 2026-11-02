@@ -10,7 +10,6 @@ per sequence.
 | preset | method | source |
 |---|---|---|
 | `pace4()`, `pace48()` | PACE-4 (int4 key-axis groups, decode buffer, periodic re-rounding); PACE-4/8 (int8 Hadamard heads by a calibrated head score) | PACE, [arXiv 2610.29545](https://arxiv.org/abs/2610.29545) |
-| `damp_int8()`, `damp_int4()` | DAMP-style protected key channels (`ChannelProtect`), as configured in the PACE evaluation harness | [PACE](https://arxiv.org/abs/2610.29545) evaluation harness |
 | `damp_paper_int8()`, `damp_paper_int4()` | DAMP's own recipe: fp16 key channels, INT8 sym / INT4 asym g32, calibrated value scaling + reordering, SR | DAMP, [arXiv 2608.27513](https://arxiv.org/abs/2608.27513) v2 |
 | `qmamba_dsq()` | decoupled scale quantization (`DSQ`) | Q-Mamba, [Findings of ACL 2025](https://aclanthology.org/2025.findings-acl.551) |
 | `nemotron()` | fp16 state with stochastic rounding, every token | Nemotron 3 Super, [arXiv 2604.12374](https://arxiv.org/abs/2604.12374) |
@@ -30,7 +29,7 @@ Per-model quality and bits per value: [results](results.md).
 ```python
 import statequant as sq
 
-q = sq.pace48()                          # PACE-4/8; also sq.pace4(), sq.damp_int8(), sq.damp_int4(),
+q = sq.pace48()                          # PACE-4/8; also sq.pace4(), sq.damp_paper_int8(),
                                          # sq.qmamba_dsq(), sq.nemotron(), sq.rtn(bits, axis, group)
 sq.calibrate(model, q, calib_ids)        # only methods with a fitted allocation (HeadMix, ChannelProtect)
 with sq.apply(model, q):                 # the method's published schedule, or sq.apply(model, q, sq.Schedule(...))
